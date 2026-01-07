@@ -59,14 +59,14 @@ func (s *Store) refreshNames() {
 	}
 }
 
-func (s *Store) getCardByName(name string) (models.Card, error) {
-	for _, c := range s.collection {
+func (s *Store) getCardByName(name string) (int, models.Card, error) {
+	for i, c := range s.collection {
 		if c.Name == name {
-			return c, nil
+			return i, c, nil
 		}
 	}
 
-	return models.Card{}, fmt.Errorf("card not found: %q", name)
+	return 0, models.Card{}, fmt.Errorf("card not found: %q", name)
 }
 
 func (s *Store) Search(search string) ([]models.Card, error) {
@@ -75,7 +75,7 @@ func (s *Store) Search(search string) ([]models.Card, error) {
 	sort.Sort(matches)
 	for _, m := range matches {
 		if m.Distance > 0 {
-			if card, err := s.getCardByName(m.Source); err != nil {
+			if _, card, err := s.getCardByName(m.Source); err != nil {
 				results = append(results, card)
 			} else {
 				return nil, err
@@ -154,5 +154,29 @@ func (s *Store) InsertSWUDBCSV(filepath string) error {
 		return fmt.Errorf("failed to save: %w", err)
 	}
 
+	return nil
+}
+
+func (s *Store) IncrementCardOwned(name string) error {
+	i, _, err := s.getCardByName(name)
+	if err != nil {
+		return fmt.Errorf("failed to get card %q: %w", name, err)
+	}
+
+	s.collection[i].Owned += 1
+	return nil
+}
+
+func (s *Store) DecrementCardOwned(name string) error {
+	i, card, err := s.getCardByName(name)
+	if err != nil {
+		return fmt.Errorf("failed to get card %q: %w", name, err)
+	}
+
+	if card.Owned == 0 {
+		return nil
+	}
+
+	s.collection[i].Owned -= 1
 	return nil
 }
