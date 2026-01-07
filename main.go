@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"swucol/store"
+	"swucol/tui"
 )
 
 func main() {
@@ -31,5 +32,14 @@ func main() {
 		return
 	}
 
-	fmt.Println("hello world")
+	// Initialize store for the TUI
+	s, err := store.New(storeFilepath)
+	if err != nil {
+		log.Fatalf("Failed to initialize store: %v", err)
+	}
+
+	// Launch the TUI application
+	if err := tui.Run(s); err != nil {
+		log.Fatalf("Failed to run TUI: %v", err)
+	}
 }

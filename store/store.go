@@ -29,6 +29,9 @@ func New(filepath string) (*Store, error) {
 		return nil, fmt.Errorf("failed to unmarshal data into collection: %w", err)
 	}
 
+	// Populate names slice for fuzzy search
+	store.refreshNames()
+
 	return store, nil
 }
 
@@ -47,6 +50,8 @@ func (s *Store) Save() error {
 	if err := os.WriteFile(s.filepath, collectionJSON, 0644); err != nil {
 		return fmt.Errorf("failed to write file %q: %w", s.filepath, err)
 	}
+
+	s.refreshNames()
 
 	return nil
 }
@@ -74,13 +79,11 @@ func (s *Store) Search(search string) ([]models.Card, error) {
 	matches := fuzzy.RankFindNormalizedFold(search, s.names)
 	sort.Sort(matches)
 	for _, m := range matches {
-		if m.Distance > 0 {
-			if _, card, err := s.getCardByName(m.Source); err != nil {
-				results = append(results, card)
-			} else {
-				return nil, err
-			}
+		_, card, err := s.getCardByName(m.Target)
+		if err != nil {
+			return nil, err
 		}
+		results = append(results, card)
 	}
 
 	return results, nil
@@ -95,6 +98,9 @@ func (s *Store) InsertSWUDBCard(swudbCard models.SWUDBCard) error {
 	}
 	if swudbCard.CardNumber == "" {
 		return fmt.Errorf("card number is empty")
+	}
+	if swudbCard.CardType == "" {
+		return fmt.Errorf("card rarity is empty")
 	}
 	// I have no need for keeping track of common bases in my collection.
 	if swudbCard.CardType == models.SWUDBType_Base && swudbCard.Rarity == models.SWUDBRarity_Common {
@@ -116,6 +122,7 @@ func (s *Store) InsertSWUDBCard(swudbCard models.SWUDBCard) error {
 	card := models.Card{
 		Name:     cardName,
 		Owned:    0, // If it's not in the database it's assumed we don't have any.
+		Type:     swudbCard.CardType,
 		SWUDBURL: fmt.Sprintf("https://swudb.com/card/%s/%s", swudbCard.Set, swudbCard.CardNumber),
 	}
 
@@ -164,6 +171,7 @@ func (s *Store) IncrementCardOwned(name string) error {
 	}
 
 	s.collection[i].Owned += 1
+	s.Save()
 	return nil
 }
 
@@ -178,5 +186,6 @@ func (s *Store) DecrementCardOwned(name string) error {
 	}
 
 	s.collection[i].Owned -= 1
+	s.Save()
 	return nil
 }

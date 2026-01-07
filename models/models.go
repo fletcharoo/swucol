@@ -43,5 +43,6 @@ type SWUDBCard struct {
 type Card struct {
 	Name     string `json:"name"`
 	Owned    int    `json:"owned"`
+	Type     string `json:"type"`
 	SWUDBURL string `json:"swudbURL"`
 }
