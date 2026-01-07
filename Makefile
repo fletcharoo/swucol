@@ -15,6 +15,10 @@ test/coverage: ## Generate test coverage report.
 	@if [ -f temp/coverage.html ]; then rm temp/coverage.html; fi
 	go test -v -coverprofile=temp/coverage.out ./... && go tool cover -html=temp/coverage.out -o temp/coverage.html
 
+.PHONY: build
+build: ## Builds the executable
+	go build -o swucol
+
 .PHONY: run
 run: ## Builds and runs the executable
 	go build -o swucol
