@@ -46,3 +46,8 @@ type Card struct {
 	Type     string `json:"type"`
 	SWUDBURL string `json:"swudbURL"`
 }
+
+// SaveJSON is how swucol saves data to the file system
+type SaveJSON struct {
+	Collection []Card `json:"collection"`
+}

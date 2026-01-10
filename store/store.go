@@ -25,9 +25,12 @@ func New(filepath string) (*Store, error) {
 		return nil, fmt.Errorf("failed to read file %q: %w", filepath, err)
 	}
 
-	if err = json.Unmarshal(data, &(store.collection)); err != nil {
+	var saveJSON models.SaveJSON
+	if err = json.Unmarshal(data, &saveJSON); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal data into collection: %w", err)
 	}
+
+	store.collection = saveJSON.Collection
 
 	// Populate names slice for fuzzy search
 	store.refreshNames()
@@ -42,12 +45,19 @@ type Store struct {
 }
 
 func (s *Store) Save() error {
-	collectionJSON, err := json.Marshal(s.collection)
+	// Create the SaveJSON struct.
+	saveJSON := models.SaveJSON{
+		Collection: s.collection,
+	}
+
+	// Marshal.
+	saveJSONBytes, err := json.Marshal(saveJSON)
 	if err != nil {
 		return fmt.Errorf("failed to marshal collection: %w", err)
 	}
 
-	if err := os.WriteFile(s.filepath, collectionJSON, 0644); err != nil {
+	// Write to file system.
+	if err := os.WriteFile(s.filepath, saveJSONBytes, 0644); err != nil {
 		return fmt.Errorf("failed to write file %q: %w", s.filepath, err)
 	}
 
