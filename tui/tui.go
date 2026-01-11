@@ -79,6 +79,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursorPosition++
 				if m.cursorPosition >= 0 {
 					m.searchInput.Blur()
+					// Grey out the search bar text when not focused
+					m.searchInput.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("247"))
 				}
 			}
 			return m, nil
@@ -89,6 +91,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursorPosition--
 				if m.cursorPosition == -1 {
 					m.searchInput.Focus()
+					// Restore white text when focused
+					m.searchInput.TextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("255"))
 				}
 			}
 			return m, nil
