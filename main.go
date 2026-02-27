@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"swucol/database"
 )
 
 // helloHandler responds with "hello world" for GET /hello requests.
@@ -11,6 +12,20 @@ func helloHandler(responseWriter http.ResponseWriter, request *http.Request) {
 }
 
 func main() {
+	db, err := database.New("./swucol.db")
+	if err != nil {
+		fmt.Printf("Failed to open database: %v\n", err)
+		return
+	}
+	defer db.Shutdown()
+
+	if err := db.RunMigrations(); err != nil {
+		fmt.Printf("Failed to run database migrations: %v\n", err)
+		return
+	}
+
+	fmt.Println("Database initialized successfully")
+
 	http.HandleFunc("/hello", helloHandler)
 
 	fmt.Println("Server listening on :8080")
@@ -18,4 +33,3 @@ func main() {
 		fmt.Printf("Server error: %v\n", err)
 	}
 }
-
