@@ -40,14 +40,28 @@ When doing any of the following tasks, you **MUST** use the appropriate command:
 - Application runs on port 8080
 
 ### Important Files
-- `Makefile`: Build and development automation tool.
+- `Makefile`: Build and development automation commands.
+- `main.go`: Application entry point; initializes the SQLite database and registers HTTP routes.
+- `models/models.go`: Shared data models used across packages (`Card` for database records, `CardCSV` for CSV import rows).
+- `database/database.go`: SQLite wrapper providing connection management, schema migrations, and card query/insert operations.
+- `cards/handler.go`: HTTP handler for `POST /cards/import` that parses a CSV body and persists new cards to the database.
 
 ### Project Structure
 ```text
 .
-├── README.md                 # Entry point for project, containing basic information and setup instructions.
-├── LICENSE                   # The license file for project (MIT).
-├── go.mod                    # Go module definition file.
-├── go.sum                    # Go module dependencies lock file.
-└── Makefile                  # Build and development automation commands.
+├── README.md                    # Project overview and setup instructions.
+├── LICENSE                      # MIT license.
+├── CLAUDE.md                    # Project-specific AI assistant instructions.
+├── Makefile                     # Build and development automation commands.
+├── go.mod                       # Go module definition.
+├── go.sum                       # Go module dependency lock file.
+├── main.go                      # Application entry point; starts the HTTP server on :8080.
+├── models/
+│   └── models.go                # Shared data models: Card (database) and CardCSV (CSV import).
+├── database/
+│   ├── database.go              # SQLite wrapper: connection, migrations, and card operations.
+│   └── database_test.go         # Tests for database initialization, migrations, and card operations.
+└── cards/
+    ├── handler.go               # HTTP handler for POST /cards/import; parses CSV and inserts cards.
+    └── handler_test.go          # Behavioral tests for the card import endpoint.
 ```

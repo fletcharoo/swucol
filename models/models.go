@@ -1,3 +1,4 @@
+// Package models defines the shared data structures used across the application.
 package models
 
 // Card represents a card record stored in the database.
