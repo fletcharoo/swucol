@@ -204,3 +204,72 @@ func TestInsertCard_EmptyName_ReturnsError(t *testing.T) {
 
 	assert.ErrorContains(t, err, "must not be empty")
 }
+
+func TestGetCardByID_ExistingCard_ReturnsCard(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, image, owned) VALUES (?, ?, ?)",
+		"Luke Skywalker, Jedi Knight", "https://example.com/luke.jpg", 2,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	card, err := db.GetCardByID(int(insertedID))
+
+	require.NoError(t, err)
+	assert.Equal(t, int(insertedID), card.ID)
+	assert.Equal(t, "Luke Skywalker, Jedi Knight", card.Name)
+	assert.Equal(t, "https://example.com/luke.jpg", card.Image)
+	assert.Equal(t, 2, card.Owned)
+}
+
+func TestGetCardByID_NullImage_ReturnsEmptyString(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	card, err := db.GetCardByID(int(insertedID))
+
+	require.NoError(t, err)
+	assert.Equal(t, "", card.Image, "expected empty string for null image")
+}
+
+func TestGetCardByID_NonExistentID_ReturnsErrCardNotFound(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	card, err := db.GetCardByID(99999)
+
+	assert.Nil(t, card)
+	assert.ErrorIs(t, err, database.ErrCardNotFound)
+}
+
+func TestGetCardByID_ZeroID_ReturnsError(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	card, err := db.GetCardByID(0)
+
+	assert.Nil(t, card)
+	assert.ErrorContains(t, err, "must be a positive integer")
+}
+
+func TestGetCardByID_NegativeID_ReturnsError(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	card, err := db.GetCardByID(-1)
+
+	assert.Nil(t, card)
+	assert.ErrorContains(t, err, "must be a positive integer")
+}

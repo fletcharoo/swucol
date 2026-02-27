@@ -7,7 +7,12 @@ import (
 	"fmt"
 
 	_ "modernc.org/sqlite" // Register the SQLite driver.
+
+	"swucol/models"
 )
+
+// ErrCardNotFound is returned by GetCardByID when no card with the given ID exists.
+var ErrCardNotFound = errors.New("card not found")
 
 // Database wraps a sql.DB connection and provides schema management.
 type Database struct {
@@ -95,6 +100,36 @@ func (database *Database) InsertCard(name string) error {
 	}
 
 	return nil
+}
+
+// GetCardByID retrieves the card with the given id from the cards table.
+// Returns ErrCardNotFound if no card with that id exists.
+// Returns an error if id is not a positive integer or the query fails.
+func (database *Database) GetCardByID(id int) (*models.Card, error) {
+	if id <= 0 {
+		return nil, errors.New("card id must be a positive integer")
+	}
+
+	var card models.Card
+	var image sql.NullString
+
+	err := database.connection.QueryRow(
+		"SELECT id, name, image, owned FROM cards WHERE id = ?",
+		id,
+	).Scan(&card.ID, &card.Name, &image, &card.Owned)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrCardNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get card by id: %w", err)
+	}
+
+	if image.Valid {
+		card.Image = image.String
+	}
+
+	return &card, nil
 }
 
 // Shutdown closes the database connection. It should be called when the

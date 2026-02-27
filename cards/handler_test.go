@@ -1,6 +1,8 @@
 package cards_test
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -12,6 +14,7 @@ import (
 
 	"swucol/cards"
 	"swucol/database"
+	"swucol/models"
 )
 
 // newTestDatabase creates a Database backed by a temporary file that is
@@ -176,6 +179,96 @@ func TestImportCardsHandler_CSVWithNoDataRows_Returns400(t *testing.T) {
 	db := newTestDatabase(t)
 
 	response := postImport(t, db, validCSVHeader)
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+// getCard sends a GET request to GetCardHandler for the given raw id string.
+func getCard(t *testing.T, db *database.Database, rawID string) *http.Response {
+	t.Helper()
+
+	target := fmt.Sprintf("/cards/%s", rawID)
+	request := httptest.NewRequest(http.MethodGet, target, nil)
+	request.SetPathValue("id", rawID)
+	recorder := httptest.NewRecorder()
+
+	cards.GetCardHandler(db)(recorder, request)
+
+	return recorder.Result()
+}
+
+func TestGetCardHandler_ExistingCard_Returns200WithJSON(t *testing.T) {
+	db := newTestDatabase(t)
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, image, owned) VALUES (?, ?, ?)",
+		"Luke Skywalker, Jedi Knight", "https://example.com/luke.jpg", 3,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	response := getCard(t, db, fmt.Sprintf("%d", insertedID))
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Equal(t, "application/json", response.Header.Get("Content-Type"))
+
+	var card models.Card
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
+	assert.Equal(t, int(insertedID), card.ID)
+	assert.Equal(t, "Luke Skywalker, Jedi Knight", card.Name)
+	assert.Equal(t, "https://example.com/luke.jpg", card.Image)
+	assert.Equal(t, 3, card.Owned)
+}
+
+func TestGetCardHandler_NullImage_Returns200WithEmptyImageField(t *testing.T) {
+	db := newTestDatabase(t)
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	response := getCard(t, db, fmt.Sprintf("%d", insertedID))
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+
+	var card models.Card
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&card))
+	assert.Equal(t, "", card.Image, "expected empty string for null image")
+}
+
+func TestGetCardHandler_NonExistentID_Returns404(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := getCard(t, db, "99999")
+
+	assert.Equal(t, http.StatusNotFound, response.StatusCode)
+}
+
+func TestGetCardHandler_NonIntegerID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := getCard(t, db, "abc")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestGetCardHandler_ZeroID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := getCard(t, db, "0")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestGetCardHandler_NegativeID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := getCard(t, db, "-1")
 
 	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
 }

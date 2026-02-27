@@ -29,6 +29,7 @@ func main() {
 
 	http.HandleFunc("/hello", helloHandler)
 	http.HandleFunc("/cards/import", cards.ImportCardsHandler(db))
+	http.HandleFunc("GET /cards/{id}", cards.GetCardHandler(db))
 
 	fmt.Println("Server listening on :8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

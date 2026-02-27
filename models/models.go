@@ -3,9 +3,10 @@ package models
 
 // Card represents a card record stored in the database.
 type Card struct {
-	Name  string
-	Image string
-	Owned int
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Image string `json:"image"`
+	Owned int    `json:"owned"`
 }
 
 // CardCSV represents a single row from a card collection CSV export.

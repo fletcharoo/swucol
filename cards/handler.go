@@ -3,10 +3,12 @@ package cards
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"swucol/database"
@@ -76,6 +78,42 @@ func cardCSVToName(card models.CardCSV) string {
 		return card.CardName
 	}
 	return card.CardName + ", " + card.CardTitle
+}
+
+// GetCardHandler returns an http.HandlerFunc that retrieves a single card by its
+// integer id path parameter. Returns 200 OK with the card as JSON on success,
+// 400 Bad Request for a missing or non-positive-integer id, 404 Not Found when
+// no card with that id exists, and 500 Internal Server Error for database errors.
+func GetCardHandler(db *database.Database) http.HandlerFunc {
+	return func(responseWriter http.ResponseWriter, request *http.Request) {
+		rawID := request.PathValue("id")
+		if rawID == "" {
+			http.Error(responseWriter, "id path parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		id, err := strconv.Atoi(rawID)
+		if err != nil || id <= 0 {
+			http.Error(responseWriter, "id must be a positive integer", http.StatusBadRequest)
+			return
+		}
+
+		card, err := db.GetCardByID(id)
+		if errors.Is(err, database.ErrCardNotFound) {
+			http.Error(responseWriter, "card not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(responseWriter, "database error", http.StatusInternalServerError)
+			return
+		}
+
+		responseWriter.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(responseWriter).Encode(card); err != nil {
+			http.Error(responseWriter, "failed to encode response", http.StatusInternalServerError)
+			return
+		}
+	}
 }
 
 // ImportCardsHandler returns an http.HandlerFunc that accepts a raw CSV body,
