@@ -1,0 +1,33 @@
+{{define "card-tile"}}
+<div class="card-tile" id="card-{{.ID}}">
+	{{if .Image}}
+		<img src="/{{.Image}}" alt="{{.Name}}">
+	{{else}}
+		<div class="card-no-image">No Image</div>
+	{{end}}
+	<div class="card-info">
+		<span class="card-name">{{.Name}}</span>
+		{{template "card-owned-fragment" .}}
+	</div>
+</div>
+{{end}}
+
+{{define "card-owned-fragment"}}
+<div class="owned-row" id="owned-{{.ID}}">
+	<span class="owned-count">Owned: {{.Owned}}</span>
+	<div class="owned-controls">
+		<button
+			class="owned-btn"
+			hx-post="/cards/{{.ID}}/decrement/html"
+			hx-target="#owned-{{.ID}}"
+			hx-swap="outerHTML"
+		>-</button>
+		<button
+			class="owned-btn"
+			hx-post="/cards/{{.ID}}/increment/html"
+			hx-target="#owned-{{.ID}}"
+			hx-swap="outerHTML"
+		>+</button>
+	</div>
+</div>
+{{end}}

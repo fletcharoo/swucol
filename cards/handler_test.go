@@ -1,9 +1,13 @@
 package cards_test
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"html/template"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -205,6 +209,30 @@ func TestImportCardsHandler_WrongHeaderFormat_Returns400(t *testing.T) {
 	response := postImport(t, db, http.DefaultClient, imagesDir, "", csv)
 
 	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestImportCardsHandler_UTF8BOMPrefix_ParsesSuccessfully(t *testing.T) {
+	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
+
+	// Prepend a UTF-8 BOM as Excel and similar tools do when exporting CSVs.
+	bom := "\xEF\xBB\xBF"
+	csv := bom + validCSVHeader + "\n" +
+		"LAW,001,Chewbacca,Hero of Kessel,Character,Heroism,Normal,Rare,false,,Artist One,0,0"
+
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
+
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	exists, err := db.CardExistsByName("Chewbacca, Hero of Kessel")
+	require.NoError(t, err)
+	assert.True(t, exists, "expected card to be inserted despite BOM prefix")
 }
 
 func TestImportCardsHandler_EmptyBody_Returns400(t *testing.T) {
@@ -664,4 +692,356 @@ func TestSearchCardsHandler_QueryWithNoMatch_Returns200WithEmptyArray(t *testing
 	var result []models.Card
 	require.NoError(t, json.NewDecoder(response.Body).Decode(&result))
 	assert.Empty(t, result)
+}
+
+// newTestTemplates loads the application HTML templates relative to this
+// test file's location in the cards/ package directory.
+func newTestTemplates(t *testing.T) *template.Template {
+	t.Helper()
+
+	tmpl, err := template.ParseGlob("../templates/*.html")
+	require.NoError(t, err, "expected no error loading test templates")
+
+	return tmpl
+}
+
+// postImportHTML sends a POST request to ImportCardsHTMLHandler with a
+// multipart/form-data body containing a "file" field with the given CSV content.
+func postImportHTML(t *testing.T, db *database.Database, httpClient *http.Client, imagesDir, imageBaseURL, csvContent string) *http.Response {
+	t.Helper()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+
+	part, err := writer.CreateFormFile("file", "cards.csv")
+	require.NoError(t, err)
+
+	_, err = io.WriteString(part, csvContent)
+	require.NoError(t, err)
+
+	require.NoError(t, writer.Close())
+
+	request := httptest.NewRequest(http.MethodPost, "/cards/import/html", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+
+	cards.ImportCardsHTMLHandler(db, httpClient, imagesDir, imageBaseURL)(recorder, request)
+
+	return recorder.Result()
+}
+
+// searchCardsHTML sends a GET request to SearchCardsHTMLHandler with the
+// given query string. Pass an empty query to omit the "q" parameter entirely.
+func searchCardsHTML(t *testing.T, db *database.Database, tmpl *template.Template, query string) *http.Response {
+	t.Helper()
+
+	target := "/cards/search/html"
+	if query != "" {
+		target = fmt.Sprintf("/cards/search/html?q=%s", query)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, target, nil)
+	recorder := httptest.NewRecorder()
+
+	cards.SearchCardsHTMLHandler(db, tmpl)(recorder, request)
+
+	return recorder.Result()
+}
+
+// incrementCardOwnedHTML sends a POST request to IncrementCardOwnedHTMLHandler
+// for the given raw id string.
+func incrementCardOwnedHTML(t *testing.T, db *database.Database, tmpl *template.Template, rawID string) *http.Response {
+	t.Helper()
+
+	target := fmt.Sprintf("/cards/%s/increment/html", rawID)
+	request := httptest.NewRequest(http.MethodPost, target, nil)
+	request.SetPathValue("id", rawID)
+	recorder := httptest.NewRecorder()
+
+	cards.IncrementCardOwnedHTMLHandler(db, tmpl)(recorder, request)
+
+	return recorder.Result()
+}
+
+// decrementCardOwnedHTML sends a POST request to DecrementCardOwnedHTMLHandler
+// for the given raw id string.
+func decrementCardOwnedHTML(t *testing.T, db *database.Database, tmpl *template.Template, rawID string) *http.Response {
+	t.Helper()
+
+	target := fmt.Sprintf("/cards/%s/decrement/html", rawID)
+	request := httptest.NewRequest(http.MethodPost, target, nil)
+	request.SetPathValue("id", rawID)
+	recorder := httptest.NewRecorder()
+
+	cards.DecrementCardOwnedHTMLHandler(db, tmpl)(recorder, request)
+
+	return recorder.Result()
+}
+
+func TestIndexHandler_Returns200WithHTMLPage(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	recorder := httptest.NewRecorder()
+
+	cards.IndexHandler(db, tmpl)(recorder, request)
+
+	response := recorder.Result()
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Contains(t, response.Header.Get("Content-Type"), "text/html")
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "<!DOCTYPE html>")
+	assert.Contains(t, string(body), "SWU Collection")
+}
+
+func TestIndexHandler_WithCards_RendersCardNames(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?), (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	recorder := httptest.NewRecorder()
+
+	cards.IndexHandler(db, tmpl)(recorder, request)
+
+	response := recorder.Result()
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "Luke Skywalker, Jedi Knight")
+	assert.Contains(t, string(body), "Chewbacca, Hero of Kessel")
+}
+
+func TestSearchCardsHTMLHandler_NoQuery_Returns200WithAllCards(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?), (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+
+	response := searchCardsHTML(t, db, tmpl, "")
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Contains(t, response.Header.Get("Content-Type"), "text/html")
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "Luke Skywalker, Jedi Knight")
+	assert.Contains(t, string(body), "Chewbacca, Hero of Kessel")
+}
+
+func TestSearchCardsHTMLHandler_WithQuery_ReturnsFilteredCards(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?), (?, ?), (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+		"Luke Skywalker, Rebel Hero", 0,
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+
+	response := searchCardsHTML(t, db, tmpl, "Luke")
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+	assert.Contains(t, bodyStr, "Luke Skywalker, Jedi Knight")
+	assert.Contains(t, bodyStr, "Luke Skywalker, Rebel Hero")
+	assert.NotContains(t, bodyStr, "Chewbacca, Hero of Kessel")
+}
+
+func TestSearchCardsHTMLHandler_EmptyDatabase_ReturnsNoCardsMessage(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	response := searchCardsHTML(t, db, tmpl, "")
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "No cards found.")
+}
+
+func TestImportCardsHTMLHandler_ValidCSV_Returns200WithHXTriggerHeader(t *testing.T) {
+	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
+
+	csvContent := validCSVHeader + "\n" +
+		"LAW,001,Chewbacca,Hero of Kessel,Character,Heroism,Normal,Rare,false,,Artist One,0,0"
+
+	response := postImportHTML(t, db, imageServer.Client(), imagesDir, imageServer.URL, csvContent)
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Equal(t, "cardsImported", response.Header.Get("HX-Trigger"))
+
+	exists, err := db.CardExistsByName("Chewbacca, Hero of Kessel")
+	require.NoError(t, err)
+	assert.True(t, exists, "expected card to be inserted")
+}
+
+func TestImportCardsHTMLHandler_MalformedCSV_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	response := postImportHTML(t, db, http.DefaultClient, imagesDir, "", "this is not valid csv")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestImportCardsHTMLHandler_MissingFileField_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+
+	// Send a multipart form with a different field name (not "file").
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("wrong-field", "cards.csv")
+	require.NoError(t, err)
+	_, err = io.WriteString(part, validCSVHeader+"\nLAW,001,Chewbacca,,Character,Heroism,Normal,Rare,false,,A,0,0")
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	request := httptest.NewRequest(http.MethodPost, "/cards/import/html", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+
+	cards.ImportCardsHTMLHandler(db, http.DefaultClient, t.TempDir(), "")(recorder, request)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Result().StatusCode)
+}
+
+func TestIncrementCardOwnedHTMLHandler_ExistingCard_Returns200WithUpdatedFragment(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	response := incrementCardOwnedHTML(t, db, tmpl, fmt.Sprintf("%d", insertedID))
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Contains(t, response.Header.Get("Content-Type"), "text/html")
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+	assert.Contains(t, bodyStr, "Owned: 1")
+	assert.Contains(t, bodyStr, fmt.Sprintf("id=\"owned-%d\"", insertedID))
+}
+
+func TestIncrementCardOwnedHTMLHandler_NonExistentID_Returns404(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	response := incrementCardOwnedHTML(t, db, tmpl, "99999")
+
+	assert.Equal(t, http.StatusNotFound, response.StatusCode)
+}
+
+func TestIncrementCardOwnedHTMLHandler_NonIntegerID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	response := incrementCardOwnedHTML(t, db, tmpl, "abc")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestIncrementCardOwnedHTMLHandler_ZeroID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	response := incrementCardOwnedHTML(t, db, tmpl, "0")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestDecrementCardOwnedHTMLHandler_PositiveOwned_Returns200WithDecrementedCount(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Chewbacca, Hero of Kessel", 3,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	response := decrementCardOwnedHTML(t, db, tmpl, fmt.Sprintf("%d", insertedID))
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Contains(t, response.Header.Get("Content-Type"), "text/html")
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "Owned: 2")
+}
+
+func TestDecrementCardOwnedHTMLHandler_ZeroOwned_Returns200WithZeroCount(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	response := decrementCardOwnedHTML(t, db, tmpl, fmt.Sprintf("%d", insertedID))
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "Owned: 0")
+}
+
+func TestDecrementCardOwnedHTMLHandler_NonExistentID_Returns404(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	response := decrementCardOwnedHTML(t, db, tmpl, "99999")
+
+	assert.Equal(t, http.StatusNotFound, response.StatusCode)
+}
+
+func TestDecrementCardOwnedHTMLHandler_NonIntegerID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	response := decrementCardOwnedHTML(t, db, tmpl, "abc")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
 }

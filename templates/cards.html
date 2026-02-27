@@ -1,0 +1,9 @@
+{{define "cards"}}
+{{if .}}
+	{{range .}}
+		{{template "card-tile" .}}
+	{{end}}
+{{else}}
+	<p class="empty-state">No cards found.</p>
+{{end}}
+{{end}}
