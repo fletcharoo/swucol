@@ -17,12 +17,12 @@ test/coverage: ## Generate test coverage report.
 
 .PHONY: build
 build: ## Builds the executable
-	go build -o swucol
+	go build -o temp/swucol
 
 .PHONY: run
 run: ## Builds and runs the executable
-	go build -o swucol
-	./swucol
+	go build -o temp/swucol
+	./temp/swucol
 
 .PHONY: fmt
 fmt: ## Run go formatter.
