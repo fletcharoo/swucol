@@ -1,0 +1,13 @@
+{{define "wishlist-card-tile"}}
+<div class="card-tile" data-wishlist-card data-name="{{.Name}}" data-deficit="{{.Deficit}}">
+	{{if .Image}}
+		<img src="/{{.Image}}" alt="{{.Name}}">
+	{{else}}
+		<div class="card-no-image">No Image</div>
+	{{end}}
+	<div class="card-info">
+		<span class="card-name">{{.Name}}</span>
+		<span class="need-count">Need: {{.Deficit}} more</span>
+	</div>
+</div>
+{{end}}

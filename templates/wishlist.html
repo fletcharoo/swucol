@@ -1,0 +1,212 @@
+{{define "wishlist"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Wishlist — SWU Collection Manager</title>
+	<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+	<style>
+		*, *::before, *::after {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0;
+		}
+
+		body {
+			background: #1f1f1f;
+			color: #ffffff;
+			font-family: system-ui, -apple-system, sans-serif;
+			min-height: 100vh;
+		}
+
+		/* Top bar */
+		.top-bar {
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			padding: 16px 24px;
+			background: #2a2a2a;
+			border-bottom: 1px solid #3a3a3a;
+			position: sticky;
+			top: 0;
+			z-index: 10;
+		}
+
+		.search-input {
+			flex: 1;
+			padding: 10px 14px;
+			border-radius: 6px;
+			border: none;
+			font-size: 1rem;
+			background: #ffffff;
+			color: #111111;
+			outline: none;
+		}
+
+		.search-input:focus {
+			box-shadow: 0 0 0 2px #555555;
+		}
+
+		.export-btn {
+			padding: 10px 20px;
+			border-radius: 6px;
+			border: none;
+			background: #ffffff;
+			color: #111111;
+			font-size: 0.95rem;
+			font-weight: 600;
+			cursor: pointer;
+			white-space: nowrap;
+		}
+
+		.export-btn:hover {
+			background: #e8e8e8;
+		}
+
+		.nav-link {
+			padding: 10px 20px;
+			border-radius: 6px;
+			border: 1px solid #555555;
+			background: transparent;
+			color: #ffffff;
+			font-size: 0.95rem;
+			font-weight: 600;
+			cursor: pointer;
+			white-space: nowrap;
+			text-decoration: none;
+		}
+
+		.nav-link:hover {
+			background: #3a3a3a;
+		}
+
+		.export-status {
+			font-size: 0.85rem;
+			color: #aaaaaa;
+			white-space: nowrap;
+		}
+
+		/* Card grid */
+		#wishlist-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+			gap: 16px;
+			padding: 24px;
+		}
+
+		/* Card tile */
+		.card-tile {
+			background: #ffffff;
+			color: #111111;
+			border-radius: 8px;
+			overflow: hidden;
+			display: flex;
+			flex-direction: column;
+		}
+
+		.card-tile img {
+			width: 100%;
+			height: 180px;
+			object-fit: contain;
+			background: #eeeeee;
+			display: block;
+		}
+
+		.card-no-image {
+			width: 100%;
+			height: 180px;
+			background: #cccccc;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			font-size: 0.8rem;
+			color: #666666;
+		}
+
+		.card-info {
+			padding: 10px;
+			display: flex;
+			flex-direction: column;
+			flex: 1;
+			gap: 8px;
+		}
+
+		.card-name {
+			font-size: 0.82rem;
+			font-weight: 600;
+			line-height: 1.35;
+			word-break: break-word;
+			flex: 1;
+		}
+
+		.need-count {
+			font-size: 0.85rem;
+			color: #cc4400;
+			font-weight: 600;
+		}
+
+		/* Empty state */
+		.empty-state {
+			color: #888888;
+			padding: 48px 24px;
+			text-align: center;
+			font-size: 1rem;
+			grid-column: 1 / -1;
+		}
+	</style>
+</head>
+<body>
+
+<div class="top-bar">
+	<input
+		class="search-input"
+		type="search"
+		name="q"
+		placeholder="Search wishlist..."
+		autocomplete="off"
+		hx-get="/wishlist/search/html"
+		hx-trigger="input changed delay:300ms"
+		hx-target="#wishlist-grid"
+		hx-swap="innerHTML"
+	>
+	<span id="export-status" class="export-status"></span>
+	<button class="export-btn" onclick="exportWishlist()">Export</button>
+	<a class="nav-link" href="/">Collection</a>
+</div>
+
+<div id="wishlist-grid">
+	{{template "wishlist-cards" .}}
+</div>
+
+<script>
+	// exportWishlist collects all currently visible wishlist card tiles and copies
+	// their deficit and name to the clipboard in the format "{deficit}x {name}".
+	function exportWishlist() {
+		var tiles = document.querySelectorAll('[data-wishlist-card]');
+		var lines = Array.from(tiles).map(function(tile) {
+			return tile.dataset.deficit + 'x ' + tile.dataset.name;
+		});
+
+		var text = lines.join('\n');
+		var statusEl = document.getElementById('export-status');
+
+		if (lines.length === 0) {
+			statusEl.textContent = 'Nothing to export.';
+			setTimeout(function() { statusEl.textContent = ''; }, 2000);
+			return;
+		}
+
+		navigator.clipboard.writeText(text).then(function() {
+			statusEl.textContent = 'Copied!';
+			setTimeout(function() { statusEl.textContent = ''; }, 2000);
+		}).catch(function() {
+			statusEl.textContent = 'Copy failed.';
+			setTimeout(function() { statusEl.textContent = ''; }, 2000);
+		});
+	}
+</script>
+
+</body>
+</html>
+{{end}}

@@ -617,3 +617,113 @@ func TestSearchCards_MainboardFalse_ReturnsMainboardFalse(t *testing.T) {
 	require.Len(t, result, 1)
 	assert.False(t, result[0].Mainboard, "expected mainboard to be false")
 }
+
+func TestGetWishlistCards_EmptyDatabase_ReturnsEmptySlice(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	result, err := db.GetWishlistCards("")
+
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
+func TestGetWishlistCards_MainboardCardBelowMinimum_IsIncluded(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?)",
+		"Luke Skywalker, Jedi Knight", database.MainboardMinimumOwned-1, 1,
+	)
+	require.NoError(t, err)
+
+	result, err := db.GetWishlistCards("")
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, "Luke Skywalker, Jedi Knight", result[0].Name)
+}
+
+func TestGetWishlistCards_MainboardCardAtMinimum_IsExcluded(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?)",
+		"Luke Skywalker, Jedi Knight", database.MainboardMinimumOwned, 1,
+	)
+	require.NoError(t, err)
+
+	result, err := db.GetWishlistCards("")
+
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
+func TestGetWishlistCards_NonMainboardCardBelowMinimum_IsIncluded(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?)",
+		"Darth Vader, Sith Lord", database.NonMainboardMinimumOwned-1, 0,
+	)
+	require.NoError(t, err)
+
+	result, err := db.GetWishlistCards("")
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, "Darth Vader, Sith Lord", result[0].Name)
+}
+
+func TestGetWishlistCards_NonMainboardCardAtMinimum_IsExcluded(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?)",
+		"Darth Vader, Sith Lord", database.NonMainboardMinimumOwned, 0,
+	)
+	require.NoError(t, err)
+
+	result, err := db.GetWishlistCards("")
+
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
+func TestGetWishlistCards_WithQueryFilter_ReturnsMatchingWishlistCards(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?), (?, ?, ?)",
+		"Luke Skywalker, Jedi Knight", 0, 1,
+		"Chewbacca, Hero of Kessel", 0, 1,
+	)
+	require.NoError(t, err)
+
+	result, err := db.GetWishlistCards("Luke")
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, "Luke Skywalker, Jedi Knight", result[0].Name)
+}
+
+func TestGetWishlistCards_WithQueryFilter_NoMatch_ReturnsEmptySlice(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?)",
+		"Luke Skywalker, Jedi Knight", 0, 1,
+	)
+	require.NoError(t, err)
+
+	result, err := db.GetWishlistCards("Darth Vader")
+
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}

@@ -1151,3 +1151,181 @@ func TestDecrementCardOwnedHTMLHandler_NonIntegerID_Returns400(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
 }
+
+// getWishlist sends a GET request to WishlistHandler and returns the response.
+func getWishlist(t *testing.T, db *database.Database, tmpl *template.Template) *http.Response {
+	t.Helper()
+
+	request := httptest.NewRequest(http.MethodGet, "/wishlist", nil)
+	recorder := httptest.NewRecorder()
+
+	cards.WishlistHandler(db, tmpl)(recorder, request)
+
+	return recorder.Result()
+}
+
+// searchWishlistHTML sends a GET request to SearchWishlistHTMLHandler with the
+// given query string. Pass an empty query to omit the "q" parameter entirely.
+func searchWishlistHTML(t *testing.T, db *database.Database, tmpl *template.Template, query string) *http.Response {
+	t.Helper()
+
+	target := "/wishlist/search/html"
+	if query != "" {
+		target = fmt.Sprintf("/wishlist/search/html?q=%s", query)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, target, nil)
+	recorder := httptest.NewRecorder()
+
+	cards.SearchWishlistHTMLHandler(db, tmpl)(recorder, request)
+
+	return recorder.Result()
+}
+
+func TestWishlistHandler_Returns200WithHTMLPage(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	response := getWishlist(t, db, tmpl)
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Contains(t, response.Header.Get("Content-Type"), "text/html")
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "<!DOCTYPE html>")
+	assert.Contains(t, string(body), "Wishlist")
+}
+
+func TestWishlistHandler_WithCardBelowMinimum_RendersCardNameAndDeficit(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	// Mainboard card with owned=2 should appear with deficit of 4 (6-2=4).
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?)",
+		"Luke Skywalker, Jedi Knight", 2, 1,
+	)
+	require.NoError(t, err)
+
+	response := getWishlist(t, db, tmpl)
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+	assert.Contains(t, bodyStr, "Luke Skywalker, Jedi Knight")
+	assert.Contains(t, bodyStr, "Need: 4 more")
+}
+
+func TestWishlistHandler_ExcludesCardsAtMinimum(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	// Mainboard card with owned=6 is at minimum and should not appear.
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?)",
+		"Luke Skywalker, Jedi Knight", 6, 1,
+	)
+	require.NoError(t, err)
+
+	response := getWishlist(t, db, tmpl)
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+	assert.NotContains(t, bodyStr, "Luke Skywalker, Jedi Knight")
+}
+
+func TestWishlistHandler_EmptyWishlist_ShowsEmptyState(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	response := getWishlist(t, db, tmpl)
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(body), "No cards in your wishlist.")
+}
+
+func TestWishlistHandler_NonMainboardCardBelowMinimum_ComputesCorrectDeficit(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	// Non-mainboard card with owned=1 should have deficit of 2 (3-1=2).
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?)",
+		"Darth Vader, Sith Lord", 1, 0,
+	)
+	require.NoError(t, err)
+
+	response := getWishlist(t, db, tmpl)
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+	assert.Contains(t, bodyStr, "Darth Vader, Sith Lord")
+	assert.Contains(t, bodyStr, "Need: 2 more")
+}
+
+func TestSearchWishlistHTMLHandler_EmptyQuery_ReturnsAllWishlistCards(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?), (?, ?, ?)",
+		"Luke Skywalker, Jedi Knight", 0, 1,
+		"Chewbacca, Hero of Kessel", 0, 1,
+	)
+	require.NoError(t, err)
+
+	response := searchWishlistHTML(t, db, tmpl, "")
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Contains(t, response.Header.Get("Content-Type"), "text/html")
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+	assert.Contains(t, bodyStr, "Luke Skywalker, Jedi Knight")
+	assert.Contains(t, bodyStr, "Chewbacca, Hero of Kessel")
+}
+
+func TestSearchWishlistHTMLHandler_WithQuery_FiltersWishlistCards(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?), (?, ?, ?)",
+		"Luke Skywalker, Jedi Knight", 0, 1,
+		"Chewbacca, Hero of Kessel", 0, 1,
+	)
+	require.NoError(t, err)
+
+	response := searchWishlistHTML(t, db, tmpl, "Luke")
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	bodyStr := string(body)
+	assert.Contains(t, bodyStr, "Luke Skywalker, Jedi Knight")
+	assert.NotContains(t, bodyStr, "Chewbacca, Hero of Kessel")
+}
+
+func TestSearchWishlistHTMLHandler_ExcludesCardsAtMinimum(t *testing.T) {
+	db := newTestDatabase(t)
+	tmpl := newTestTemplates(t)
+
+	// Card at minimum should never appear in the wishlist, even with no search filter.
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?)",
+		"Luke Skywalker, Jedi Knight", 6, 1,
+	)
+	require.NoError(t, err)
+
+	response := searchWishlistHTML(t, db, tmpl, "")
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "Luke Skywalker, Jedi Knight")
+}

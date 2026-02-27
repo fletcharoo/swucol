@@ -14,6 +14,12 @@ import (
 // ErrCardNotFound is returned by GetCardByID when no card with the given ID exists.
 var ErrCardNotFound = errors.New("card not found")
 
+// MainboardMinimumOwned is the minimum number of copies required for mainboard cards.
+const MainboardMinimumOwned = 6
+
+// NonMainboardMinimumOwned is the minimum number of copies required for non-mainboard cards.
+const NonMainboardMinimumOwned = 3
+
 // Database wraps a sql.DB connection and provides schema management.
 type Database struct {
 	connection *sql.DB
@@ -317,6 +323,64 @@ func (database *Database) SearchCards(query string) ([]models.Card, error) {
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("search cards: rows: %w", err)
+	}
+
+	return result, nil
+}
+
+// GetWishlistCards returns all cards where the owned count is below the minimum
+// threshold: MainboardMinimumOwned for mainboard cards and NonMainboardMinimumOwned
+// for non-mainboard cards. An optional name query filters results by a
+// case-insensitive substring match. Returns an empty slice (never nil) when no
+// cards are below their threshold or when the query matches none.
+func (database *Database) GetWishlistCards(query string) ([]models.Card, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+
+	if query == "" {
+		rows, err = database.connection.Query(
+			"SELECT id, name, image, owned, mainboard FROM cards WHERE (mainboard = 1 AND owned < ?) OR (mainboard = 0 AND owned < ?)",
+			MainboardMinimumOwned,
+			NonMainboardMinimumOwned,
+		)
+	} else {
+		rows, err = database.connection.Query(
+			"SELECT id, name, image, owned, mainboard FROM cards WHERE ((mainboard = 1 AND owned < ?) OR (mainboard = 0 AND owned < ?)) AND name LIKE ? COLLATE NOCASE",
+			MainboardMinimumOwned,
+			NonMainboardMinimumOwned,
+			"%"+query+"%",
+		)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("get wishlist cards: %w", err)
+	}
+	defer rows.Close()
+
+	result := []models.Card{}
+
+	for rows.Next() {
+		var card models.Card
+		var image sql.NullString
+		var mainboardInt int
+
+		if err := rows.Scan(&card.ID, &card.Name, &image, &card.Owned, &mainboardInt); err != nil {
+			return nil, fmt.Errorf("get wishlist cards: scan: %w", err)
+		}
+
+		if image.Valid {
+			card.Image = image.String
+		}
+
+		card.Mainboard = mainboardInt != 0
+
+		result = append(result, card)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("get wishlist cards: rows: %w", err)
 	}
 
 	return result, nil

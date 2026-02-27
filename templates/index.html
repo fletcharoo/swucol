@@ -64,6 +64,23 @@
 			background: #e8e8e8;
 		}
 
+		.nav-link {
+			padding: 10px 20px;
+			border-radius: 6px;
+			border: 1px solid #555555;
+			background: transparent;
+			color: #ffffff;
+			font-size: 0.95rem;
+			font-weight: 600;
+			cursor: pointer;
+			white-space: nowrap;
+			text-decoration: none;
+		}
+
+		.nav-link:hover {
+			background: #3a3a3a;
+		}
+
 		/* Card grid */
 		#card-grid {
 			display: grid;
@@ -253,6 +270,7 @@
 	<button class="import-btn" onclick="document.getElementById('import-dialog').showModal()">
 		Import
 	</button>
+	<a class="nav-link" href="/wishlist">Wishlist</a>
 </div>
 
 <div

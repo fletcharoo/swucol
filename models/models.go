@@ -10,6 +10,13 @@ type Card struct {
 	Mainboard bool   `json:"mainboard"`
 }
 
+// WishlistCard extends Card with a pre-computed Deficit field that indicates
+// how many more copies are needed to meet the minimum owned threshold.
+type WishlistCard struct {
+	Card
+	Deficit int
+}
+
 // CardCSV represents a single row from a card collection CSV export.
 // The fields map directly to the CSV column headers.
 type CardCSV struct {

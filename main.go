@@ -61,6 +61,8 @@ func main() {
 	http.HandleFunc("POST /cards/import/html", cards.ImportCardsHTMLHandler(db, http.DefaultClient, "images", "https://swudb.com/cdn-cgi/image/width=300/images/cards"))
 	http.HandleFunc("POST /cards/{id}/increment/html", cards.IncrementCardOwnedHTMLHandler(db, tmpl))
 	http.HandleFunc("POST /cards/{id}/decrement/html", cards.DecrementCardOwnedHTMLHandler(db, tmpl))
+	http.HandleFunc("GET /wishlist", cards.WishlistHandler(db, tmpl))
+	http.HandleFunc("GET /wishlist/search/html", cards.SearchWishlistHTMLHandler(db, tmpl))
 
 	slog.Info("server listening", "addr", ":8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

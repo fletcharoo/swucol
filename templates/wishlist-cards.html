@@ -1,0 +1,9 @@
+{{define "wishlist-cards"}}
+{{if .}}
+	{{range .}}
+		{{template "wishlist-card-tile" .}}
+	{{end}}
+{{else}}
+	<p class="empty-state">No cards in your wishlist.</p>
+{{end}}
+{{end}}

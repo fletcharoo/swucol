@@ -591,6 +591,76 @@ func IncrementCardOwnedHTMLHandler(db *database.Database, tmpl *template.Templat
 	}
 }
 
+// computeWishlistCards converts a slice of Card records into WishlistCard records
+// by computing the Deficit for each card. The deficit is the number of additional
+// copies needed to reach the minimum threshold: database.MainboardMinimumOwned for
+// mainboard cards and database.NonMainboardMinimumOwned for non-mainboard cards.
+func computeWishlistCards(cardSlice []models.Card) []models.WishlistCard {
+	wishlist := make([]models.WishlistCard, 0, len(cardSlice))
+	for _, card := range cardSlice {
+		minimum := database.NonMainboardMinimumOwned
+		if card.Mainboard {
+			minimum = database.MainboardMinimumOwned
+		}
+		wishlist = append(wishlist, models.WishlistCard{
+			Card:    card,
+			Deficit: minimum - card.Owned,
+		})
+	}
+	return wishlist
+}
+
+// WishlistHandler returns an http.HandlerFunc that serves the wishlist page at
+// GET /wishlist. It loads all cards below their minimum owned threshold from the
+// database and renders the wishlist template. Returns 500 Internal Server Error
+// if the database query or template rendering fails.
+func WishlistHandler(db *database.Database, tmpl *template.Template) http.HandlerFunc {
+	return func(responseWriter http.ResponseWriter, request *http.Request) {
+		slog.Info("GET /wishlist received")
+
+		wishlistCards, err := db.GetWishlistCards("")
+		if err != nil {
+			slog.Error("database error loading wishlist cards", "error", err)
+			http.Error(responseWriter, "database error", http.StatusInternalServerError)
+			return
+		}
+
+		slog.Info("rendering wishlist page", "card_count", len(wishlistCards))
+
+		responseWriter.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := tmpl.ExecuteTemplate(responseWriter, "wishlist", computeWishlistCards(wishlistCards)); err != nil {
+			slog.Error("failed to render wishlist template", "error", err)
+			http.Error(responseWriter, "template error", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+// SearchWishlistHTMLHandler returns an http.HandlerFunc that handles
+// GET /wishlist/search/html. It reads the optional "q" query parameter and
+// renders the wishlist card grid partial template with matching wishlist cards.
+// Used by htmx for live search updates. Returns 200 OK with HTML on success
+// and 500 Internal Server Error for database or template errors.
+func SearchWishlistHTMLHandler(db *database.Database, tmpl *template.Template) http.HandlerFunc {
+	return func(responseWriter http.ResponseWriter, request *http.Request) {
+		query := request.URL.Query().Get("q")
+
+		wishlistCards, err := db.GetWishlistCards(query)
+		if err != nil {
+			slog.Error("database error searching wishlist cards for HTML response", "query", query, "error", err)
+			http.Error(responseWriter, "database error", http.StatusInternalServerError)
+			return
+		}
+
+		responseWriter.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := tmpl.ExecuteTemplate(responseWriter, "wishlist-cards", computeWishlistCards(wishlistCards)); err != nil {
+			slog.Error("failed to render wishlist-cards template", "query", query, "error", err)
+			http.Error(responseWriter, "template error", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
 // DecrementCardOwnedHTMLHandler returns an http.HandlerFunc that decrements
 // the owned count by 1 (clamped at 0) for the card identified by the id path
 // parameter and returns the updated owned-row fragment as HTML. Used by htmx
