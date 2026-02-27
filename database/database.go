@@ -132,6 +132,63 @@ func (database *Database) GetCardByID(id int) (*models.Card, error) {
 	return &card, nil
 }
 
+// IncrementCardOwned increments the owned count by 1 for the card with the
+// given id. Returns ErrCardNotFound if no card with that id exists.
+// Returns an error if id is not a positive integer or the update fails.
+func (database *Database) IncrementCardOwned(id int) error {
+	if id <= 0 {
+		return errors.New("card id must be a positive integer")
+	}
+
+	result, err := database.connection.Exec(
+		"UPDATE cards SET owned = owned + 1 WHERE id = ?",
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("increment card owned: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("increment card owned rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrCardNotFound
+	}
+
+	return nil
+}
+
+// DecrementCardOwned decrements the owned count by 1 for the card with the
+// given id, clamping at 0 so it never goes negative. Returns ErrCardNotFound
+// if no card with that id exists. Returns an error if id is not a positive
+// integer or the update fails.
+func (database *Database) DecrementCardOwned(id int) error {
+	if id <= 0 {
+		return errors.New("card id must be a positive integer")
+	}
+
+	result, err := database.connection.Exec(
+		"UPDATE cards SET owned = MAX(owned - 1, 0) WHERE id = ?",
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("decrement card owned: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("decrement card owned rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return ErrCardNotFound
+	}
+
+	return nil
+}
+
 // Shutdown closes the database connection. It should be called when the
 // application is shutting down to release resources cleanly.
 func (database *Database) Shutdown() error {

@@ -116,6 +116,68 @@ func GetCardHandler(db *database.Database) http.HandlerFunc {
 	}
 }
 
+// IncrementCardOwnedHandler returns an http.HandlerFunc that increments the
+// owned count by 1 for the card identified by the id path parameter. Returns
+// 204 No Content on success, 400 Bad Request for a missing or non-positive-integer
+// id, 404 Not Found when no card with that id exists, and 500 Internal Server
+// Error for database errors.
+func IncrementCardOwnedHandler(db *database.Database) http.HandlerFunc {
+	return func(responseWriter http.ResponseWriter, request *http.Request) {
+		rawID := request.PathValue("id")
+		if rawID == "" {
+			http.Error(responseWriter, "id path parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		id, err := strconv.Atoi(rawID)
+		if err != nil || id <= 0 {
+			http.Error(responseWriter, "id must be a positive integer", http.StatusBadRequest)
+			return
+		}
+
+		if err := db.IncrementCardOwned(id); errors.Is(err, database.ErrCardNotFound) {
+			http.Error(responseWriter, "card not found", http.StatusNotFound)
+			return
+		} else if err != nil {
+			http.Error(responseWriter, "database error", http.StatusInternalServerError)
+			return
+		}
+
+		responseWriter.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// DecrementCardOwnedHandler returns an http.HandlerFunc that decrements the
+// owned count by 1 for the card identified by the id path parameter, clamping
+// at 0 so it never goes negative. Returns 204 No Content on success, 400 Bad
+// Request for a missing or non-positive-integer id, 404 Not Found when no card
+// with that id exists, and 500 Internal Server Error for database errors.
+func DecrementCardOwnedHandler(db *database.Database) http.HandlerFunc {
+	return func(responseWriter http.ResponseWriter, request *http.Request) {
+		rawID := request.PathValue("id")
+		if rawID == "" {
+			http.Error(responseWriter, "id path parameter is required", http.StatusBadRequest)
+			return
+		}
+
+		id, err := strconv.Atoi(rawID)
+		if err != nil || id <= 0 {
+			http.Error(responseWriter, "id must be a positive integer", http.StatusBadRequest)
+			return
+		}
+
+		if err := db.DecrementCardOwned(id); errors.Is(err, database.ErrCardNotFound) {
+			http.Error(responseWriter, "card not found", http.StatusNotFound)
+			return
+		} else if err != nil {
+			http.Error(responseWriter, "database error", http.StatusInternalServerError)
+			return
+		}
+
+		responseWriter.WriteHeader(http.StatusNoContent)
+	}
+}
+
 // ImportCardsHandler returns an http.HandlerFunc that accepts a raw CSV body,
 // parses it, and inserts any cards that do not already exist in the database.
 // Cards that already exist (matched by name) are silently skipped. Cards that

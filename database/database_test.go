@@ -273,3 +273,123 @@ func TestGetCardByID_NegativeID_ReturnsError(t *testing.T) {
 	assert.Nil(t, card)
 	assert.ErrorContains(t, err, "must be a positive integer")
 }
+
+func TestIncrementCardOwned_ExistingCard_IncrementsOwned(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Luke Skywalker, Jedi Knight", 2,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	err = db.IncrementCardOwned(int(insertedID))
+
+	require.NoError(t, err)
+
+	row := db.Connection().QueryRow("SELECT owned FROM cards WHERE id = ?", insertedID)
+	var owned int
+	require.NoError(t, row.Scan(&owned))
+	assert.Equal(t, 3, owned)
+}
+
+func TestIncrementCardOwned_NonExistentID_ReturnsErrCardNotFound(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	err := db.IncrementCardOwned(99999)
+
+	assert.ErrorIs(t, err, database.ErrCardNotFound)
+}
+
+func TestIncrementCardOwned_ZeroID_ReturnsError(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	err := db.IncrementCardOwned(0)
+
+	assert.ErrorContains(t, err, "must be a positive integer")
+}
+
+func TestIncrementCardOwned_NegativeID_ReturnsError(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	err := db.IncrementCardOwned(-1)
+
+	assert.ErrorContains(t, err, "must be a positive integer")
+}
+
+func TestDecrementCardOwned_ExistingCardWithPositiveOwned_DecrementsOwned(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Chewbacca, Hero of Kessel", 3,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	err = db.DecrementCardOwned(int(insertedID))
+
+	require.NoError(t, err)
+
+	row := db.Connection().QueryRow("SELECT owned FROM cards WHERE id = ?", insertedID)
+	var owned int
+	require.NoError(t, row.Scan(&owned))
+	assert.Equal(t, 2, owned)
+}
+
+func TestDecrementCardOwned_ExistingCardWithZeroOwned_StaysAtZero(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	err = db.DecrementCardOwned(int(insertedID))
+
+	require.NoError(t, err)
+
+	row := db.Connection().QueryRow("SELECT owned FROM cards WHERE id = ?", insertedID)
+	var owned int
+	require.NoError(t, row.Scan(&owned))
+	assert.Equal(t, 0, owned)
+}
+
+func TestDecrementCardOwned_NonExistentID_ReturnsErrCardNotFound(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	err := db.DecrementCardOwned(99999)
+
+	assert.ErrorIs(t, err, database.ErrCardNotFound)
+}
+
+func TestDecrementCardOwned_ZeroID_ReturnsError(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	err := db.DecrementCardOwned(0)
+
+	assert.ErrorContains(t, err, "must be a positive integer")
+}
+
+func TestDecrementCardOwned_NegativeID_ReturnsError(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	err := db.DecrementCardOwned(-1)
+
+	assert.ErrorContains(t, err, "must be a positive integer")
+}

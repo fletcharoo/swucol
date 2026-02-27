@@ -272,3 +272,158 @@ func TestGetCardHandler_NegativeID_Returns400(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
 }
+
+// incrementCardOwned sends a POST request to IncrementCardOwnedHandler for the given raw id string.
+func incrementCardOwned(t *testing.T, db *database.Database, rawID string) *http.Response {
+	t.Helper()
+
+	target := fmt.Sprintf("/cards/%s/increment", rawID)
+	request := httptest.NewRequest(http.MethodPost, target, nil)
+	request.SetPathValue("id", rawID)
+	recorder := httptest.NewRecorder()
+
+	cards.IncrementCardOwnedHandler(db)(recorder, request)
+
+	return recorder.Result()
+}
+
+// decrementCardOwned sends a POST request to DecrementCardOwnedHandler for the given raw id string.
+func decrementCardOwned(t *testing.T, db *database.Database, rawID string) *http.Response {
+	t.Helper()
+
+	target := fmt.Sprintf("/cards/%s/decrement", rawID)
+	request := httptest.NewRequest(http.MethodPost, target, nil)
+	request.SetPathValue("id", rawID)
+	recorder := httptest.NewRecorder()
+
+	cards.DecrementCardOwnedHandler(db)(recorder, request)
+
+	return recorder.Result()
+}
+
+func TestIncrementCardOwnedHandler_ExistingCard_Returns204AndIncrementsOwned(t *testing.T) {
+	db := newTestDatabase(t)
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Luke Skywalker, Jedi Knight", 2,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	response := incrementCardOwned(t, db, fmt.Sprintf("%d", insertedID))
+
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	row := db.Connection().QueryRow("SELECT owned FROM cards WHERE id = ?", insertedID)
+	var owned int
+	require.NoError(t, row.Scan(&owned))
+	assert.Equal(t, 3, owned)
+}
+
+func TestIncrementCardOwnedHandler_NonExistentID_Returns404(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := incrementCardOwned(t, db, "99999")
+
+	assert.Equal(t, http.StatusNotFound, response.StatusCode)
+}
+
+func TestIncrementCardOwnedHandler_NonIntegerID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := incrementCardOwned(t, db, "abc")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestIncrementCardOwnedHandler_ZeroID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := incrementCardOwned(t, db, "0")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestIncrementCardOwnedHandler_NegativeID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := incrementCardOwned(t, db, "-1")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestDecrementCardOwnedHandler_ExistingCardWithPositiveOwned_Returns204AndDecrementsOwned(t *testing.T) {
+	db := newTestDatabase(t)
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Chewbacca, Hero of Kessel", 3,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	response := decrementCardOwned(t, db, fmt.Sprintf("%d", insertedID))
+
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	row := db.Connection().QueryRow("SELECT owned FROM cards WHERE id = ?", insertedID)
+	var owned int
+	require.NoError(t, row.Scan(&owned))
+	assert.Equal(t, 2, owned)
+}
+
+func TestDecrementCardOwnedHandler_ExistingCardWithZeroOwned_Returns204AndKeepsAtZero(t *testing.T) {
+	db := newTestDatabase(t)
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	response := decrementCardOwned(t, db, fmt.Sprintf("%d", insertedID))
+
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	row := db.Connection().QueryRow("SELECT owned FROM cards WHERE id = ?", insertedID)
+	var owned int
+	require.NoError(t, row.Scan(&owned))
+	assert.Equal(t, 0, owned)
+}
+
+func TestDecrementCardOwnedHandler_NonExistentID_Returns404(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := decrementCardOwned(t, db, "99999")
+
+	assert.Equal(t, http.StatusNotFound, response.StatusCode)
+}
+
+func TestDecrementCardOwnedHandler_NonIntegerID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := decrementCardOwned(t, db, "abc")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestDecrementCardOwnedHandler_ZeroID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := decrementCardOwned(t, db, "0")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestDecrementCardOwnedHandler_NegativeID_Returns400(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := decrementCardOwned(t, db, "-1")
+
+	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
