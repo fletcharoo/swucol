@@ -28,7 +28,7 @@ func main() {
 	fmt.Println("Database initialized successfully")
 
 	http.HandleFunc("/hello", helloHandler)
-	http.HandleFunc("/cards/import", cards.ImportCardsHandler(db))
+	http.HandleFunc("/cards/import", cards.ImportCardsHandler(db, http.DefaultClient, "images", "https://swudb.com/csn-cgi/image/width=300/images/cards"))
 	http.HandleFunc("GET /cards/search", cards.SearchCardsHandler(db))
 	http.HandleFunc("GET /cards/{id}", cards.GetCardHandler(db))
 	http.HandleFunc("POST /cards/{id}/increment", cards.IncrementCardOwnedHandler(db))

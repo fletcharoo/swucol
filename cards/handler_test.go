@@ -1,10 +1,12 @@
 package cards_test
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -36,14 +38,15 @@ func newTestDatabase(t *testing.T) *database.Database {
 	return db
 }
 
-// postImport sends a POST request to the ImportCardsHandler with the given body.
-func postImport(t *testing.T, db *database.Database, body string) *http.Response {
+// postImport sends a POST request to the ImportCardsHandler with the given
+// HTTP client, images directory, image base URL, and CSV body.
+func postImport(t *testing.T, db *database.Database, httpClient *http.Client, imagesDir, imageBaseURL, body string) *http.Response {
 	t.Helper()
 
 	request := httptest.NewRequest(http.MethodPost, "/cards/import", strings.NewReader(body))
 	recorder := httptest.NewRecorder()
 
-	cards.ImportCardsHandler(db)(recorder, request)
+	cards.ImportCardsHandler(db, httpClient, imagesDir, imageBaseURL)(recorder, request)
 
 	return recorder.Result()
 }
@@ -53,12 +56,19 @@ const validCSVHeader = "Set,Card Number,Card Name,Card Title,Card Type,Aspects,V
 
 func TestImportCardsHandler_ValidCSV_InsertsNewCards(t *testing.T) {
 	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
 
 	csv := validCSVHeader + "\n" +
 		"LAW,001,Chewbacca,Hero of Kessel,Character,Heroism,Normal,Rare,false,,Artist One,0,0\n" +
 		"LAW,002,Luke Skywalker,Jedi Knight,Character,Heroism,Normal,Rare,false,,Artist Two,0,0"
 
-	response := postImport(t, db, csv)
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
 
 	assert.Equal(t, http.StatusNoContent, response.StatusCode)
 
@@ -73,11 +83,18 @@ func TestImportCardsHandler_ValidCSV_InsertsNewCards(t *testing.T) {
 
 func TestImportCardsHandler_InsertsCardsWithOwnedZero(t *testing.T) {
 	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
 
 	csv := validCSVHeader + "\n" +
 		"LAW,001,Chewbacca,Hero of Kessel,Character,Heroism,Normal,Rare,false,,Artist One,5,10"
 
-	response := postImport(t, db, csv)
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
 
 	assert.Equal(t, http.StatusNoContent, response.StatusCode)
 
@@ -92,15 +109,22 @@ func TestImportCardsHandler_InsertsCardsWithOwnedZero(t *testing.T) {
 
 func TestImportCardsHandler_DuplicateCards_SkipsExisting(t *testing.T) {
 	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
 
 	csv := validCSVHeader + "\n" +
 		"LAW,001,Chewbacca,Hero of Kessel,Character,Heroism,Normal,Rare,false,,Artist One,0,0"
 
 	// Import the same CSV twice.
-	response := postImport(t, db, csv)
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
 	assert.Equal(t, http.StatusNoContent, response.StatusCode)
 
-	response = postImport(t, db, csv)
+	response = postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
 	assert.Equal(t, http.StatusNoContent, response.StatusCode)
 
 	// Confirm only one row exists for this card.
@@ -115,12 +139,19 @@ func TestImportCardsHandler_DuplicateCards_SkipsExisting(t *testing.T) {
 
 func TestImportCardsHandler_DuplicateRowsInSameCSV_InsertedOnce(t *testing.T) {
 	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
 
 	csv := validCSVHeader + "\n" +
 		"LAW,001,Chewbacca,Hero of Kessel,Character,Heroism,Normal,Rare,false,,Artist One,0,0\n" +
 		"LAW,001,Chewbacca,Hero of Kessel,Character,Heroism,Normal,Rare,false,,Artist One,0,0"
 
-	response := postImport(t, db, csv)
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
 
 	assert.Equal(t, http.StatusNoContent, response.StatusCode)
 
@@ -135,11 +166,18 @@ func TestImportCardsHandler_DuplicateRowsInSameCSV_InsertedOnce(t *testing.T) {
 
 func TestImportCardsHandler_EmptyCardTitle_UsesCardNameOnly(t *testing.T) {
 	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
 
 	csv := validCSVHeader + "\n" +
 		"LAW,001,Chewbacca,,Character,Heroism,Normal,Rare,false,,Artist One,0,0"
 
-	response := postImport(t, db, csv)
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
 
 	assert.Equal(t, http.StatusNoContent, response.StatusCode)
 
@@ -150,37 +188,143 @@ func TestImportCardsHandler_EmptyCardTitle_UsesCardNameOnly(t *testing.T) {
 
 func TestImportCardsHandler_MalformedCSV_Returns400(t *testing.T) {
 	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
 
-	response := postImport(t, db, "this is not a valid csv\x00\xff")
+	response := postImport(t, db, http.DefaultClient, imagesDir, "", "this is not a valid csv\x00\xff")
 
 	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
 }
 
 func TestImportCardsHandler_WrongHeaderFormat_Returns400(t *testing.T) {
 	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
 
 	csv := "Wrong,Header,Format\n" +
 		"LAW,001,Chewbacca,Hero of Kessel,Character,Heroism,Normal,Rare,false,,Artist One,0,0"
 
-	response := postImport(t, db, csv)
+	response := postImport(t, db, http.DefaultClient, imagesDir, "", csv)
 
 	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
 }
 
 func TestImportCardsHandler_EmptyBody_Returns400(t *testing.T) {
 	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
 
-	response := postImport(t, db, "")
+	response := postImport(t, db, http.DefaultClient, imagesDir, "", "")
 
 	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
 }
 
 func TestImportCardsHandler_CSVWithNoDataRows_Returns400(t *testing.T) {
 	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
 
-	response := postImport(t, db, validCSVHeader)
+	response := postImport(t, db, http.DefaultClient, imagesDir, "", validCSVHeader)
 
 	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
+}
+
+func TestImportCardsHandler_ValidCSV_DownloadsAndSavesImage(t *testing.T) {
+	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
+
+	csv := validCSVHeader + "\n" +
+		"LAW,001,Chewbacca,Hero of Kessel,Character,Heroism,Normal,Rare,false,,Artist One,0,0"
+
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
+
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	expectedFilePath := filepath.Join(imagesDir, "LAW001.png")
+	_, err := os.Stat(expectedFilePath)
+	assert.NoError(t, err, "expected image file to exist at %s", expectedFilePath)
+
+	row := db.Connection().QueryRow(
+		"SELECT image FROM cards WHERE name = ?",
+		"Chewbacca, Hero of Kessel",
+	)
+	var image string
+	require.NoError(t, row.Scan(&image))
+	assert.Equal(t, expectedFilePath, image, "expected image field to contain the file path")
+}
+
+func TestImportCardsHandler_ImageDownloadFails_InsertsCardWithoutImage(t *testing.T) {
+	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	// Server always returns 404.
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer imageServer.Close()
+
+	csv := validCSVHeader + "\n" +
+		"LAW,001,Chewbacca,Hero of Kessel,Character,Heroism,Normal,Rare,false,,Artist One,0,0"
+
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
+
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	// Card must still be inserted despite the download failure.
+	exists, err := db.CardExistsByName("Chewbacca, Hero of Kessel")
+	require.NoError(t, err)
+	assert.True(t, exists, "expected card to be inserted even when image download fails")
+
+	// Image field must be empty (NULL in the database).
+	row := db.Connection().QueryRow(
+		"SELECT image FROM cards WHERE name = ?",
+		"Chewbacca, Hero of Kessel",
+	)
+	var image sql.NullString
+	require.NoError(t, row.Scan(&image))
+	assert.False(t, image.Valid, "expected NULL image field when download fails")
+}
+
+func TestImportCardsHandler_ImageAlreadyExists_SkipsDownload(t *testing.T) {
+	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	// Pre-create the image file so it already exists on disk.
+	existingImagePath := filepath.Join(imagesDir, "LAW001.png")
+	require.NoError(t, os.WriteFile(existingImagePath, []byte("existing-image"), 0644))
+
+	// The image server must not be called; track requests with a counter.
+	requestCount := 0
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("new-image-data"))
+	}))
+	defer imageServer.Close()
+
+	csv := validCSVHeader + "\n" +
+		"LAW,001,Chewbacca,Hero of Kessel,Character,Heroism,Normal,Rare,false,,Artist One,0,0"
+
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
+
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+	assert.Equal(t, 0, requestCount, "expected no download requests when image file already exists")
+
+	// The existing file must not have been overwritten.
+	content, err := os.ReadFile(existingImagePath)
+	require.NoError(t, err)
+	assert.Equal(t, "existing-image", string(content), "expected existing image file to be unchanged")
+
+	// The image field in the DB must point to the existing file.
+	row := db.Connection().QueryRow(
+		"SELECT image FROM cards WHERE name = ?",
+		"Chewbacca, Hero of Kessel",
+	)
+	var image string
+	require.NoError(t, row.Scan(&image))
+	assert.Equal(t, existingImagePath, image, "expected image field to reference the existing file path")
 }
 
 // getCard sends a GET request to GetCardHandler for the given raw id string.

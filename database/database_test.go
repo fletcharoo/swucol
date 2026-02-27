@@ -177,11 +177,31 @@ func TestCardExistsByName_EmptyName_ReturnsError(t *testing.T) {
 	assert.ErrorContains(t, err, "must not be empty")
 }
 
-func TestInsertCard_ValidName_InsertsWithOwnedZero(t *testing.T) {
+func TestInsertCard_ValidNameWithImage_InsertsWithOwnedZeroAndImage(t *testing.T) {
 	db := newTestDatabase(t)
 	require.NoError(t, db.RunMigrations())
 
-	err := db.InsertCard("Chewbacca, Hero of Kessel")
+	err := db.InsertCard("Chewbacca, Hero of Kessel", "images/LAW001.png")
+	require.NoError(t, err)
+
+	row := db.Connection().QueryRow(
+		"SELECT name, image, owned FROM cards WHERE name = ?",
+		"Chewbacca, Hero of Kessel",
+	)
+
+	var name, image string
+	var owned int
+	require.NoError(t, row.Scan(&name, &image, &owned))
+	assert.Equal(t, "Chewbacca, Hero of Kessel", name)
+	assert.Equal(t, "images/LAW001.png", image)
+	assert.Equal(t, 0, owned)
+}
+
+func TestInsertCard_ValidNameWithEmptyImage_InsertsWithNullImage(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	err := db.InsertCard("Chewbacca, Hero of Kessel", "")
 	require.NoError(t, err)
 
 	row := db.Connection().QueryRow(
@@ -200,7 +220,7 @@ func TestInsertCard_EmptyName_ReturnsError(t *testing.T) {
 	db := newTestDatabase(t)
 	require.NoError(t, db.RunMigrations())
 
-	err := db.InsertCard("")
+	err := db.InsertCard("", "images/LAW001.png")
 
 	assert.ErrorContains(t, err, "must not be empty")
 }

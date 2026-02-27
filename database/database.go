@@ -83,17 +83,23 @@ func (database *Database) CardExistsByName(name string) (bool, error) {
 	return count > 0, nil
 }
 
-// InsertCard inserts a new card with the given name into the cards table.
-// The owned field is always set to 0 on insert. Returns an error if the name
-// is empty or the insert fails.
-func (database *Database) InsertCard(name string) error {
+// InsertCard inserts a new card with the given name and optional image path into
+// the cards table. The owned field is always set to 0 on insert. If imagePath
+// is empty, the image column is set to NULL. Returns an error if the name is
+// empty or the insert fails.
+func (database *Database) InsertCard(name, imagePath string) error {
 	if name == "" {
 		return errors.New("card name must not be empty")
 	}
 
+	var image sql.NullString
+	if imagePath != "" {
+		image = sql.NullString{String: imagePath, Valid: true}
+	}
+
 	_, err := database.connection.Exec(
-		"INSERT INTO cards (name, owned) VALUES (?, 0)",
-		name,
+		"INSERT INTO cards (name, image, owned) VALUES (?, ?, 0)",
+		name, image,
 	)
 	if err != nil {
 		return fmt.Errorf("insert card: %w", err)
