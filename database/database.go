@@ -39,8 +39,9 @@ func New(filePath string) (*Database, error) {
 	return &Database{connection: connection}, nil
 }
 
-// RunMigrations creates all required tables if they do not already exist.
-// It is safe to call multiple times; existing tables are not modified.
+// RunMigrations creates all required tables if they do not already exist and
+// applies any incremental schema changes. It is safe to call multiple times;
+// existing tables and columns are not modified or re-created.
 func (database *Database) RunMigrations() error {
 	createCardsTable := `
 		CREATE TABLE IF NOT EXISTS cards (
@@ -53,6 +54,72 @@ func (database *Database) RunMigrations() error {
 
 	if _, err := database.connection.Exec(createCardsTable); err != nil {
 		return fmt.Errorf("create cards table: %w", err)
+	}
+
+	if err := database.addColumnIfNotExists("cards", "mainboard", "INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return fmt.Errorf("add mainboard column: %w", err)
+	}
+
+	return nil
+}
+
+// addColumnIfNotExists adds a column with the given definition to tableName
+// only when the column does not already exist. This provides idempotent
+// schema migrations without relying on the ADD COLUMN IF NOT EXISTS syntax
+// that older SQLite versions do not support.
+func (database *Database) addColumnIfNotExists(tableName, columnName, columnDefinition string) error {
+	if tableName == "" {
+		return errors.New("table name must not be empty")
+	}
+	if columnName == "" {
+		return errors.New("column name must not be empty")
+	}
+	if columnDefinition == "" {
+		return errors.New("column definition must not be empty")
+	}
+
+	rows, err := database.connection.Query(fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+	if err != nil {
+		return fmt.Errorf("query table info: %w", err)
+	}
+
+	columnExists := false
+	for rows.Next() {
+		var (
+			cid          int
+			name         string
+			dataType     string
+			notNull      int
+			defaultValue interface{}
+			primaryKey   int
+		)
+		if scanErr := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); scanErr != nil {
+			rows.Close()
+			return fmt.Errorf("scan table info: %w", scanErr)
+		}
+		if name == columnName {
+			columnExists = true
+			break
+		}
+	}
+
+	if closeErr := rows.Close(); closeErr != nil {
+		return fmt.Errorf("close table info rows: %w", closeErr)
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("table info rows: %w", err)
+	}
+
+	if columnExists {
+		return nil
+	}
+
+	_, err = database.connection.Exec(
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, columnDefinition),
+	)
+	if err != nil {
+		return fmt.Errorf("alter table: %w", err)
 	}
 
 	return nil
@@ -83,11 +150,11 @@ func (database *Database) CardExistsByName(name string) (bool, error) {
 	return count > 0, nil
 }
 
-// InsertCard inserts a new card with the given name and optional image path into
-// the cards table. The owned field is always set to 0 on insert. If imagePath
-// is empty, the image column is set to NULL. Returns an error if the name is
-// empty or the insert fails.
-func (database *Database) InsertCard(name, imagePath string) error {
+// InsertCard inserts a new card with the given name, optional image path, and
+// mainboard flag into the cards table. The owned field is always set to 0 on
+// insert. If imagePath is empty, the image column is set to NULL. Returns an
+// error if the name is empty or the insert fails.
+func (database *Database) InsertCard(name, imagePath string, mainboard bool) error {
 	if name == "" {
 		return errors.New("card name must not be empty")
 	}
@@ -97,9 +164,14 @@ func (database *Database) InsertCard(name, imagePath string) error {
 		image = sql.NullString{String: imagePath, Valid: true}
 	}
 
+	mainboardInt := 0
+	if mainboard {
+		mainboardInt = 1
+	}
+
 	_, err := database.connection.Exec(
-		"INSERT INTO cards (name, image, owned) VALUES (?, ?, 0)",
-		name, image,
+		"INSERT INTO cards (name, image, owned, mainboard) VALUES (?, ?, 0, ?)",
+		name, image, mainboardInt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert card: %w", err)
@@ -118,11 +190,12 @@ func (database *Database) GetCardByID(id int) (*models.Card, error) {
 
 	var card models.Card
 	var image sql.NullString
+	var mainboardInt int
 
 	err := database.connection.QueryRow(
-		"SELECT id, name, image, owned FROM cards WHERE id = ?",
+		"SELECT id, name, image, owned, mainboard FROM cards WHERE id = ?",
 		id,
-	).Scan(&card.ID, &card.Name, &image, &card.Owned)
+	).Scan(&card.ID, &card.Name, &image, &card.Owned, &mainboardInt)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrCardNotFound
@@ -134,6 +207,8 @@ func (database *Database) GetCardByID(id int) (*models.Card, error) {
 	if image.Valid {
 		card.Image = image.String
 	}
+
+	card.Mainboard = mainboardInt != 0
 
 	return &card, nil
 }
@@ -206,11 +281,11 @@ func (database *Database) SearchCards(query string) ([]models.Card, error) {
 
 	if query == "" {
 		rows, err = database.connection.Query(
-			"SELECT id, name, image, owned FROM cards",
+			"SELECT id, name, image, owned, mainboard FROM cards",
 		)
 	} else {
 		rows, err = database.connection.Query(
-			"SELECT id, name, image, owned FROM cards WHERE name LIKE ? COLLATE NOCASE",
+			"SELECT id, name, image, owned, mainboard FROM cards WHERE name LIKE ? COLLATE NOCASE",
 			"%"+query+"%",
 		)
 	}
@@ -225,14 +300,17 @@ func (database *Database) SearchCards(query string) ([]models.Card, error) {
 	for rows.Next() {
 		var card models.Card
 		var image sql.NullString
+		var mainboardInt int
 
-		if err := rows.Scan(&card.ID, &card.Name, &image, &card.Owned); err != nil {
+		if err := rows.Scan(&card.ID, &card.Name, &image, &card.Owned, &mainboardInt); err != nil {
 			return nil, fmt.Errorf("search cards: scan: %w", err)
 		}
 
 		if image.Valid {
 			card.Image = image.String
 		}
+
+		card.Mainboard = mainboardInt != 0
 
 		result = append(result, card)
 	}

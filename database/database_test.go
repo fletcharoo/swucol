@@ -90,6 +90,7 @@ func TestRunMigrations_CardsTableHasCorrectColumns(t *testing.T) {
 	assert.Contains(t, columns, "name")
 	assert.Contains(t, columns, "image")
 	assert.Contains(t, columns, "owned")
+	assert.Contains(t, columns, "mainboard")
 
 	assert.Equal(t, "INTEGER", columns["id"].dataType)
 	assert.Equal(t, "TEXT", columns["name"].dataType)
@@ -97,6 +98,8 @@ func TestRunMigrations_CardsTableHasCorrectColumns(t *testing.T) {
 	assert.Equal(t, "TEXT", columns["image"].dataType)
 	assert.Equal(t, "INTEGER", columns["owned"].dataType)
 	assert.True(t, columns["owned"].notNull, "owned column should be NOT NULL")
+	assert.Equal(t, "INTEGER", columns["mainboard"].dataType)
+	assert.True(t, columns["mainboard"].notNull, "mainboard column should be NOT NULL")
 }
 
 func TestRunMigrations_IsIdempotent(t *testing.T) {
@@ -112,21 +115,22 @@ func TestCardsTable_InsertAndQuery(t *testing.T) {
 
 	// Insert a card.
 	_, err := db.Connection().Exec(
-		"INSERT INTO cards (name, image, owned) VALUES (?, ?, ?)",
-		"Luke Skywalker", "https://example.com/luke.jpg", 2,
+		"INSERT INTO cards (name, image, owned, mainboard) VALUES (?, ?, ?, ?)",
+		"Luke Skywalker", "https://example.com/luke.jpg", 2, 1,
 	)
 	require.NoError(t, err, "expected insert to succeed")
 
 	// Query it back.
-	row := db.Connection().QueryRow("SELECT name, image, owned FROM cards WHERE name = ?", "Luke Skywalker")
+	row := db.Connection().QueryRow("SELECT name, image, owned, mainboard FROM cards WHERE name = ?", "Luke Skywalker")
 
 	var name, image string
-	var owned int
-	require.NoError(t, row.Scan(&name, &image, &owned))
+	var owned, mainboard int
+	require.NoError(t, row.Scan(&name, &image, &owned, &mainboard))
 
 	assert.Equal(t, "Luke Skywalker", name)
 	assert.Equal(t, "https://example.com/luke.jpg", image)
 	assert.Equal(t, 2, owned)
+	assert.Equal(t, 1, mainboard)
 }
 
 func TestCardsTable_NameIsRequired(t *testing.T) {
@@ -181,27 +185,62 @@ func TestInsertCard_ValidNameWithImage_InsertsWithOwnedZeroAndImage(t *testing.T
 	db := newTestDatabase(t)
 	require.NoError(t, db.RunMigrations())
 
-	err := db.InsertCard("Chewbacca, Hero of Kessel", "images/LAW001.png")
+	err := db.InsertCard("Chewbacca, Hero of Kessel", "images/LAW001.png", true)
 	require.NoError(t, err)
 
 	row := db.Connection().QueryRow(
-		"SELECT name, image, owned FROM cards WHERE name = ?",
+		"SELECT name, image, owned, mainboard FROM cards WHERE name = ?",
 		"Chewbacca, Hero of Kessel",
 	)
 
 	var name, image string
-	var owned int
-	require.NoError(t, row.Scan(&name, &image, &owned))
+	var owned, mainboard int
+	require.NoError(t, row.Scan(&name, &image, &owned, &mainboard))
 	assert.Equal(t, "Chewbacca, Hero of Kessel", name)
 	assert.Equal(t, "images/LAW001.png", image)
 	assert.Equal(t, 0, owned)
+	assert.Equal(t, 1, mainboard)
+}
+
+func TestInsertCard_MainboardTrue_StoresOne(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	err := db.InsertCard("Luke Skywalker, Jedi Knight", "", true)
+	require.NoError(t, err)
+
+	row := db.Connection().QueryRow(
+		"SELECT mainboard FROM cards WHERE name = ?",
+		"Luke Skywalker, Jedi Knight",
+	)
+
+	var mainboard int
+	require.NoError(t, row.Scan(&mainboard))
+	assert.Equal(t, 1, mainboard)
+}
+
+func TestInsertCard_MainboardFalse_StoresZero(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	err := db.InsertCard("Mace Windu, Party Crasher", "", false)
+	require.NoError(t, err)
+
+	row := db.Connection().QueryRow(
+		"SELECT mainboard FROM cards WHERE name = ?",
+		"Mace Windu, Party Crasher",
+	)
+
+	var mainboard int
+	require.NoError(t, row.Scan(&mainboard))
+	assert.Equal(t, 0, mainboard)
 }
 
 func TestInsertCard_ValidNameWithEmptyImage_InsertsWithNullImage(t *testing.T) {
 	db := newTestDatabase(t)
 	require.NoError(t, db.RunMigrations())
 
-	err := db.InsertCard("Chewbacca, Hero of Kessel", "")
+	err := db.InsertCard("Chewbacca, Hero of Kessel", "", true)
 	require.NoError(t, err)
 
 	row := db.Connection().QueryRow(
@@ -220,7 +259,7 @@ func TestInsertCard_EmptyName_ReturnsError(t *testing.T) {
 	db := newTestDatabase(t)
 	require.NoError(t, db.RunMigrations())
 
-	err := db.InsertCard("", "images/LAW001.png")
+	err := db.InsertCard("", "images/LAW001.png", true)
 
 	assert.ErrorContains(t, err, "must not be empty")
 }
@@ -244,6 +283,25 @@ func TestGetCardByID_ExistingCard_ReturnsCard(t *testing.T) {
 	assert.Equal(t, "Luke Skywalker, Jedi Knight", card.Name)
 	assert.Equal(t, "https://example.com/luke.jpg", card.Image)
 	assert.Equal(t, 2, card.Owned)
+	assert.True(t, card.Mainboard, "expected mainboard to default to true")
+}
+
+func TestGetCardByID_MainboardFalse_ReturnsMainboardFalse(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	result, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?)",
+		"Mace Windu, Vaapad Form Master", 0, 0,
+	)
+	require.NoError(t, err)
+	insertedID, err := result.LastInsertId()
+	require.NoError(t, err)
+
+	card, err := db.GetCardByID(int(insertedID))
+
+	require.NoError(t, err)
+	assert.False(t, card.Mainboard, "expected mainboard to be false for a leader card")
 }
 
 func TestGetCardByID_NullImage_ReturnsEmptyString(t *testing.T) {
@@ -524,4 +582,38 @@ func TestSearchCards_NullImage_ReturnsEmptyStringForImage(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result, 1)
 	assert.Equal(t, "", result[0].Image, "expected empty string for null image")
+}
+
+func TestSearchCards_DefaultInsert_ReturnsMainboardTrue(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+	)
+	require.NoError(t, err)
+
+	result, err := db.SearchCards("Luke")
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.True(t, result[0].Mainboard, "expected mainboard to default to true")
+}
+
+func TestSearchCards_MainboardFalse_ReturnsMainboardFalse(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned, mainboard) VALUES (?, ?, ?)",
+		"Mace Windu, Vaapad Form Master", 0, 0,
+	)
+	require.NoError(t, err)
+
+	result, err := db.SearchCards("Mace Windu")
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.False(t, result[0].Mainboard, "expected mainboard to be false")
 }

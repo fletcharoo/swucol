@@ -42,9 +42,9 @@ When doing any of the following tasks, you **MUST** use the appropriate command:
 ### Important Files
 - `Makefile`: Build and development automation commands.
 - `main.go`: Application entry point; configures structured logging (`slog`), initializes the SQLite database, loads HTML templates, registers all HTTP routes (JSON API and HTML/htmx), and serves card images as static files from the `images/` directory.
-- `models/models.go`: Shared data models used across packages (`Card` for database records, `CardCSV` for CSV import rows).
-- `database/database.go`: SQLite wrapper providing connection management, schema migrations, and card operations (insert with optional image path, existence check, lookup by ID, case-insensitive name search, and increment/decrement owned count).
-- `cards/handler.go`: All HTTP handlers. JSON API handlers (`POST /cards/import`, `GET /cards/search`, `GET /cards/{id}`, `POST /cards/{id}/increment`, `POST /cards/{id}/decrement`) and HTML/htmx handlers (`GET /`, `GET /cards/search/html`, `POST /cards/import/html`, `POST /cards/{id}/increment/html`, `POST /cards/{id}/decrement/html`). The shared `importCards` helper handles CSV parsing (with UTF-8 BOM stripping), deduplication, rate-limited image downloading, and database insertion. All handlers emit structured logs via `slog`.
+- `models/models.go`: Shared data models used across packages (`Card` for database records with `id`, `name`, `image`, `owned`, and `mainboard` fields; `CardCSV` for CSV import rows).
+- `database/database.go`: SQLite wrapper providing connection management, idempotent schema migrations (using `addColumnIfNotExists` to support incremental column additions), and card operations (insert with image path and mainboard flag, existence check, lookup by ID, case-insensitive name search, and increment/decrement owned count).
+- `cards/handler.go`: All HTTP handlers. JSON API handlers (`POST /cards/import`, `GET /cards/search`, `GET /cards/{id}`, `POST /cards/{id}/increment`, `POST /cards/{id}/decrement`) and HTML/htmx handlers (`GET /`, `GET /cards/search/html`, `POST /cards/import/html`, `POST /cards/{id}/increment/html`, `POST /cards/{id}/decrement/html`). The shared `importCards` helper handles CSV parsing (with UTF-8 BOM stripping), deduplication, rate-limited image downloading, mainboard flag derivation via `cardCSVToMainboard`, and database insertion. All handlers emit structured logs via `slog`.
 - `templates/index.html`: Full page HTML shell (`{{define "index"}}`); renders the dark-themed UI with a sticky search bar, Import button, server-side card grid, and CSV import `<dialog>`.
 - `templates/cards.html`: Card grid partial (`{{define "cards"}}`); renders a list of card tiles or an empty-state message; used by htmx for live search responses.
 - `templates/card.html`: Card tile (`{{define "card-tile"}}`) and owned-count row fragment (`{{define "card-owned-fragment"}}`); the fragment is the htmx swap target for inline `+`/`-` owned count updates.
@@ -63,13 +63,13 @@ When doing any of the following tasks, you **MUST** use the appropriate command:
 ├── example_csv.csv              # Sample card CSV in swudb.com export format for manual import testing.
 ├── images/                      # Downloaded card images stored as {Set}{CardNumber}.png; served at GET /images/.
 ├── models/
-│   └── models.go                # Shared data models: Card (database record) and CardCSV (CSV import row).
+│   └── models.go                # Shared data models: Card (database record with id, name, image, owned, mainboard) and CardCSV (CSV import row).
 ├── database/
-│   ├── database.go              # SQLite wrapper: connection, migrations, card insert (with optional image path), existence check, SearchCards, GetCardByID, and increment/decrement owned count.
-│   └── database_test.go         # Behavioral tests for database initialization, migrations, and all card operations including image path storage, search, and owned count adjustments.
+│   ├── database.go              # SQLite wrapper: connection, idempotent migrations (addColumnIfNotExists), InsertCard (with image path and mainboard flag), CardExistsByName, SearchCards, GetCardByID, and increment/decrement owned count.
+│   └── database_test.go         # Behavioral tests for database initialization, migrations, and all card operations including image path storage, mainboard flag, search, and owned count adjustments.
 ├── cards/
-│   ├── handler.go               # All HTTP handlers (JSON API and HTML/htmx) plus the shared importCards helper (CSV parsing with BOM stripping, deduplication, rate-limited image downloading, slog logging).
-│   └── handler_test.go          # Behavioral tests for all card endpoints: CSV import (including BOM-prefixed files, duplicate skipping, image download/fallback), JSON API, and HTML/htmx handlers (search, owned count fragments, import trigger).
+│   ├── handler.go               # All HTTP handlers (JSON API and HTML/htmx) plus helpers: importCards (CSV parsing with BOM stripping, deduplication, rate-limited image downloading, mainboard derivation, slog logging), cardCSVToName, and cardCSVToMainboard.
+│   └── handler_test.go          # Behavioral tests for all card endpoints: CSV import (including BOM-prefixed files, duplicate skipping, image download/fallback, mainboard flag by card type), JSON API, and HTML/htmx handlers (search, owned count fragments, import trigger).
 └── templates/
     ├── index.html               # {{define "index"}}: full page shell with dark theme, search bar, Import dialog, and server-rendered card grid.
     ├── cards.html               # {{define "cards"}}: card grid partial for htmx search swap responses.

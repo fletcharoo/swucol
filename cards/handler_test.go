@@ -355,6 +355,111 @@ func TestImportCardsHandler_ImageAlreadyExists_SkipsDownload(t *testing.T) {
 	assert.Equal(t, existingImagePath, image, "expected image field to reference the existing file path")
 }
 
+func TestImportCardsHandler_UnitCard_StoresMainboardTrue(t *testing.T) {
+	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
+
+	csv := validCSVHeader + "\n" +
+		"SOR,149,Mace Windu,Party Crasher,Unit,Aggression|Heroism,Normal,Legendary,false,,Artist One,0,0"
+
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
+
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	row := db.Connection().QueryRow(
+		"SELECT mainboard FROM cards WHERE name = ?",
+		"Mace Windu, Party Crasher",
+	)
+	var mainboard int
+	require.NoError(t, row.Scan(&mainboard))
+	assert.Equal(t, 1, mainboard, "expected Unit card to have mainboard=1")
+}
+
+func TestImportCardsHandler_LeaderCard_StoresMainboardFalse(t *testing.T) {
+	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
+
+	csv := validCSVHeader + "\n" +
+		"TWI,013,Mace Windu,Vaapad Form Master,Leader,Aggression|Heroism,Normal,Rare,false,,Artist One,0,0"
+
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
+
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	row := db.Connection().QueryRow(
+		"SELECT mainboard FROM cards WHERE name = ?",
+		"Mace Windu, Vaapad Form Master",
+	)
+	var mainboard int
+	require.NoError(t, row.Scan(&mainboard))
+	assert.Equal(t, 0, mainboard, "expected Leader card to have mainboard=0")
+}
+
+func TestImportCardsHandler_BaseCard_StoresMainboardFalse(t *testing.T) {
+	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
+
+	csv := validCSVHeader + "\n" +
+		"SOR,001,Rebel Base,,Base,Heroism,Normal,Common,false,,Artist One,0,0"
+
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
+
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	row := db.Connection().QueryRow(
+		"SELECT mainboard FROM cards WHERE name = ?",
+		"Rebel Base",
+	)
+	var mainboard int
+	require.NoError(t, row.Scan(&mainboard))
+	assert.Equal(t, 0, mainboard, "expected Base card to have mainboard=0")
+}
+
+func TestImportCardsHandler_LeaderCaseInsensitive_StoresMainboardFalse(t *testing.T) {
+	db := newTestDatabase(t)
+	imagesDir := t.TempDir()
+
+	imageServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fake-png-data"))
+	}))
+	defer imageServer.Close()
+
+	// Use uppercase "LEADER" to verify case-insensitive matching.
+	csv := validCSVHeader + "\n" +
+		"TWI,013,Mace Windu,Vaapad Form Master,LEADER,Aggression|Heroism,Normal,Rare,false,,Artist One,0,0"
+
+	response := postImport(t, db, imageServer.Client(), imagesDir, imageServer.URL, csv)
+
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	row := db.Connection().QueryRow(
+		"SELECT mainboard FROM cards WHERE name = ?",
+		"Mace Windu, Vaapad Form Master",
+	)
+	var mainboard int
+	require.NoError(t, row.Scan(&mainboard))
+	assert.Equal(t, 0, mainboard, "expected LEADER card type (uppercase) to have mainboard=0")
+}
+
 // getCard sends a GET request to GetCardHandler for the given raw id string.
 func getCard(t *testing.T, db *database.Database, rawID string) *http.Response {
 	t.Helper()
@@ -391,6 +496,7 @@ func TestGetCardHandler_ExistingCard_Returns200WithJSON(t *testing.T) {
 	assert.Equal(t, "Luke Skywalker, Jedi Knight", card.Name)
 	assert.Equal(t, "https://example.com/luke.jpg", card.Image)
 	assert.Equal(t, 3, card.Owned)
+	assert.True(t, card.Mainboard, "expected mainboard to default to true")
 }
 
 func TestGetCardHandler_NullImage_Returns200WithEmptyImageField(t *testing.T) {

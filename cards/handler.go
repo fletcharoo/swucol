@@ -115,6 +115,14 @@ func cardCSVToName(card models.CardCSV) string {
 	return card.CardName + ", " + card.CardTitle
 }
 
+// cardCSVToMainboard returns false if the card's type is "Leader" or "Base"
+// (case-insensitive), and true for all other card types. Leaders and Bases are
+// not part of the main deck in Star Wars: Unlimited.
+func cardCSVToMainboard(card models.CardCSV) bool {
+	cardType := strings.TrimSpace(card.CardType)
+	return !strings.EqualFold(cardType, "leader") && !strings.EqualFold(cardType, "base")
+}
+
 // buildImageURL constructs the remote image URL for a card using the given
 // base URL, set, and card number. Returns an error if any argument is empty.
 func buildImageURL(imageBaseURL, set, cardNumber string) (string, error) {
@@ -274,8 +282,10 @@ func importCards(db *database.Database, httpClient *http.Client, imagesDir, imag
 			}
 		}
 
-		slog.Info("inserting card", "name", name, "image_path", imagePath)
-		if err := db.InsertCard(name, imagePath); err != nil {
+		mainboard := cardCSVToMainboard(csvCard)
+
+		slog.Info("inserting card", "name", name, "image_path", imagePath, "mainboard", mainboard)
+		if err := db.InsertCard(name, imagePath, mainboard); err != nil {
 			slog.Error("database error inserting card", "name", name, "error", err)
 			return &importError{statusCode: http.StatusInternalServerError, message: "database error"}
 		}
