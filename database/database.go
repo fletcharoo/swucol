@@ -59,6 +59,44 @@ func (database *Database) Connection() *sql.DB {
 	return database.connection
 }
 
+// CardExistsByName returns true if a card with the given name already exists
+// in the cards table. Returns an error if the name is empty or the query fails.
+func (database *Database) CardExistsByName(name string) (bool, error) {
+	if name == "" {
+		return false, errors.New("card name must not be empty")
+	}
+
+	var count int
+	err := database.connection.QueryRow(
+		"SELECT COUNT(*) FROM cards WHERE name = ?",
+		name,
+	).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("check card exists by name: %w", err)
+	}
+
+	return count > 0, nil
+}
+
+// InsertCard inserts a new card with the given name into the cards table.
+// The owned field is always set to 0 on insert. Returns an error if the name
+// is empty or the insert fails.
+func (database *Database) InsertCard(name string) error {
+	if name == "" {
+		return errors.New("card name must not be empty")
+	}
+
+	_, err := database.connection.Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, 0)",
+		name,
+	)
+	if err != nil {
+		return fmt.Errorf("insert card: %w", err)
+	}
+
+	return nil
+}
+
 // Shutdown closes the database connection. It should be called when the
 // application is shutting down to release resources cleanly.
 func (database *Database) Shutdown() error {

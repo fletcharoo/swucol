@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"swucol/cards"
 	"swucol/database"
 )
 
@@ -27,6 +28,7 @@ func main() {
 	fmt.Println("Database initialized successfully")
 
 	http.HandleFunc("/hello", helloHandler)
+	http.HandleFunc("/cards/import", cards.ImportCardsHandler(db))
 
 	fmt.Println("Server listening on :8080")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

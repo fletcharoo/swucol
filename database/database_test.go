@@ -140,3 +140,67 @@ func TestCardsTable_NameIsRequired(t *testing.T) {
 
 	assert.Error(t, err, "expected error when inserting card with NULL name")
 }
+
+func TestCardExistsByName_CardDoesNotExist_ReturnsFalse(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	exists, err := db.CardExistsByName("Nonexistent Card")
+
+	require.NoError(t, err)
+	assert.False(t, exists)
+}
+
+func TestCardExistsByName_CardExists_ReturnsTrue(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, 0)",
+		"Luke Skywalker, Jedi Knight",
+	)
+	require.NoError(t, err)
+
+	exists, err := db.CardExistsByName("Luke Skywalker, Jedi Knight")
+
+	require.NoError(t, err)
+	assert.True(t, exists)
+}
+
+func TestCardExistsByName_EmptyName_ReturnsError(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	exists, err := db.CardExistsByName("")
+
+	assert.False(t, exists)
+	assert.ErrorContains(t, err, "must not be empty")
+}
+
+func TestInsertCard_ValidName_InsertsWithOwnedZero(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	err := db.InsertCard("Chewbacca, Hero of Kessel")
+	require.NoError(t, err)
+
+	row := db.Connection().QueryRow(
+		"SELECT name, owned FROM cards WHERE name = ?",
+		"Chewbacca, Hero of Kessel",
+	)
+
+	var name string
+	var owned int
+	require.NoError(t, row.Scan(&name, &owned))
+	assert.Equal(t, "Chewbacca, Hero of Kessel", name)
+	assert.Equal(t, 0, owned)
+}
+
+func TestInsertCard_EmptyName_ReturnsError(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	err := db.InsertCard("")
+
+	assert.ErrorContains(t, err, "must not be empty")
+}
