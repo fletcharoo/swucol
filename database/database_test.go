@@ -393,3 +393,115 @@ func TestDecrementCardOwned_NegativeID_ReturnsError(t *testing.T) {
 
 	assert.ErrorContains(t, err, "must be a positive integer")
 }
+
+func TestSearchCards_EmptyDatabase_EmptyQuery_ReturnsEmptySlice(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	result, err := db.SearchCards("")
+
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
+func TestSearchCards_EmptyQuery_ReturnsAllCards(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?), (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+
+	result, err := db.SearchCards("")
+
+	require.NoError(t, err)
+	assert.Len(t, result, 2)
+}
+
+func TestSearchCards_ExactNameMatch_ReturnsMatchingCard(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Luke Skywalker, Jedi Knight", 2,
+	)
+	require.NoError(t, err)
+
+	result, err := db.SearchCards("Luke Skywalker, Jedi Knight")
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, "Luke Skywalker, Jedi Knight", result[0].Name)
+}
+
+func TestSearchCards_PartialNameMatch_ReturnsMatchingCards(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?), (?, ?), (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+		"Luke Skywalker, Rebel Hero", 0,
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+
+	result, err := db.SearchCards("Luke")
+
+	require.NoError(t, err)
+	assert.Len(t, result, 2)
+}
+
+func TestSearchCards_CaseInsensitiveMatch_ReturnsMatchingCards(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+	)
+	require.NoError(t, err)
+
+	result, err := db.SearchCards("LUKE")
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, "Luke Skywalker, Jedi Knight", result[0].Name)
+}
+
+func TestSearchCards_NoMatch_ReturnsEmptySlice(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+	)
+	require.NoError(t, err)
+
+	result, err := db.SearchCards("Darth Vader")
+
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
+func TestSearchCards_NullImage_ReturnsEmptyStringForImage(t *testing.T) {
+	db := newTestDatabase(t)
+	require.NoError(t, db.RunMigrations())
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+	)
+	require.NoError(t, err)
+
+	result, err := db.SearchCards("Luke")
+
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	assert.Equal(t, "", result[0].Image, "expected empty string for null image")
+}

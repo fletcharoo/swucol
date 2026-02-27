@@ -189,6 +189,55 @@ func (database *Database) DecrementCardOwned(id int) error {
 	return nil
 }
 
+// SearchCards returns all cards whose name contains query as a substring,
+// matched case-insensitively. If query is empty, all cards are returned.
+// Returns an empty slice (never nil) when no cards match.
+func (database *Database) SearchCards(query string) ([]models.Card, error) {
+	var (
+		rows *sql.Rows
+		err  error
+	)
+
+	if query == "" {
+		rows, err = database.connection.Query(
+			"SELECT id, name, image, owned FROM cards",
+		)
+	} else {
+		rows, err = database.connection.Query(
+			"SELECT id, name, image, owned FROM cards WHERE name LIKE ? COLLATE NOCASE",
+			"%"+query+"%",
+		)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("search cards: %w", err)
+	}
+	defer rows.Close()
+
+	result := []models.Card{}
+
+	for rows.Next() {
+		var card models.Card
+		var image sql.NullString
+
+		if err := rows.Scan(&card.ID, &card.Name, &image, &card.Owned); err != nil {
+			return nil, fmt.Errorf("search cards: scan: %w", err)
+		}
+
+		if image.Valid {
+			card.Image = image.String
+		}
+
+		result = append(result, card)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("search cards: rows: %w", err)
+	}
+
+	return result, nil
+}
+
 // Shutdown closes the database connection. It should be called when the
 // application is shutting down to release resources cleanly.
 func (database *Database) Shutdown() error {

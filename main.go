@@ -29,6 +29,7 @@ func main() {
 
 	http.HandleFunc("/hello", helloHandler)
 	http.HandleFunc("/cards/import", cards.ImportCardsHandler(db))
+	http.HandleFunc("GET /cards/search", cards.SearchCardsHandler(db))
 	http.HandleFunc("GET /cards/{id}", cards.GetCardHandler(db))
 	http.HandleFunc("POST /cards/{id}/increment", cards.IncrementCardOwnedHandler(db))
 	http.HandleFunc("POST /cards/{id}/decrement", cards.DecrementCardOwnedHandler(db))

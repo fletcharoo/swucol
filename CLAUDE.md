@@ -43,8 +43,8 @@ When doing any of the following tasks, you **MUST** use the appropriate command:
 - `Makefile`: Build and development automation commands.
 - `main.go`: Application entry point; initializes the SQLite database and registers HTTP routes.
 - `models/models.go`: Shared data models used across packages (`Card` for database records, `CardCSV` for CSV import rows).
-- `database/database.go`: SQLite wrapper providing connection management, schema migrations, and card operations (insert, existence check, lookup by ID, and increment/decrement owned count).
-- `cards/handler.go`: HTTP handlers for card endpoints: `POST /cards/import` for CSV-based card import, `GET /cards/{id}` for retrieving a single card by ID, and `POST /cards/{id}/increment` and `POST /cards/{id}/decrement` for adjusting the owned count.
+- `database/database.go`: SQLite wrapper providing connection management, schema migrations, and card operations (insert, existence check, lookup by ID, case-insensitive name search, and increment/decrement owned count).
+- `cards/handler.go`: HTTP handlers for card endpoints: `POST /cards/import` for CSV-based card import, `GET /cards/search` for searching cards by name, `GET /cards/{id}` for retrieving a single card by ID, and `POST /cards/{id}/increment` and `POST /cards/{id}/decrement` for adjusting the owned count.
 
 ### Project Structure
 ```text
@@ -59,9 +59,9 @@ When doing any of the following tasks, you **MUST** use the appropriate command:
 ├── models/
 │   └── models.go                # Shared data models: Card (database) and CardCSV (CSV import).
 ├── database/
-│   ├── database.go              # SQLite wrapper: connection, migrations, card insert/existence-check, GetCardByID, and increment/decrement owned count.
-│   └── database_test.go         # Tests for database initialization, migrations, and all card operations including owned count adjustments.
+│   ├── database.go              # SQLite wrapper: connection, migrations, card insert/existence-check, SearchCards, GetCardByID, and increment/decrement owned count.
+│   └── database_test.go         # Tests for database initialization, migrations, and all card operations including search and owned count adjustments.
 └── cards/
-    ├── handler.go               # HTTP handlers: POST /cards/import (CSV import), GET /cards/{id} (JSON card lookup), POST /cards/{id}/increment and POST /cards/{id}/decrement (owned count management).
-    └── handler_test.go          # Behavioral tests for all card endpoints including owned count increment and decrement.
+    ├── handler.go               # HTTP handlers: POST /cards/import (CSV import), GET /cards/search (name search), GET /cards/{id} (JSON card lookup), POST /cards/{id}/increment and POST /cards/{id}/decrement (owned count management).
+    └── handler_test.go          # Behavioral tests for all card endpoints including search, owned count increment and decrement.
 ```

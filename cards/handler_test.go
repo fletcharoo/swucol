@@ -427,3 +427,97 @@ func TestDecrementCardOwnedHandler_NegativeID_Returns400(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, response.StatusCode)
 }
+
+// searchCards sends a GET request to SearchCardsHandler with the given query string.
+// Pass an empty query to omit the "q" parameter entirely.
+func searchCards(t *testing.T, db *database.Database, query string) *http.Response {
+	t.Helper()
+
+	target := "/cards/search"
+	if query != "" {
+		target = fmt.Sprintf("/cards/search?q=%s", query)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, target, nil)
+	recorder := httptest.NewRecorder()
+
+	cards.SearchCardsHandler(db)(recorder, request)
+
+	return recorder.Result()
+}
+
+func TestSearchCardsHandler_EmptyDatabase_NoQuery_Returns200WithEmptyArray(t *testing.T) {
+	db := newTestDatabase(t)
+
+	response := searchCards(t, db, "")
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Equal(t, "application/json", response.Header.Get("Content-Type"))
+
+	var result []models.Card
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&result))
+	assert.Empty(t, result)
+}
+
+func TestSearchCardsHandler_NoQuery_Returns200WithAllCards(t *testing.T) {
+	db := newTestDatabase(t)
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?), (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+
+	response := searchCards(t, db, "")
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Equal(t, "application/json", response.Header.Get("Content-Type"))
+
+	var result []models.Card
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&result))
+	assert.Len(t, result, 2)
+}
+
+func TestSearchCardsHandler_PartialQuery_Returns200WithMatchingCards(t *testing.T) {
+	db := newTestDatabase(t)
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?), (?, ?), (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+		"Luke Skywalker, Rebel Hero", 0,
+		"Chewbacca, Hero of Kessel", 0,
+	)
+	require.NoError(t, err)
+
+	response := searchCards(t, db, "Luke")
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Equal(t, "application/json", response.Header.Get("Content-Type"))
+
+	var result []models.Card
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&result))
+	assert.Len(t, result, 2)
+	for _, card := range result {
+		assert.Contains(t, card.Name, "Luke")
+	}
+}
+
+func TestSearchCardsHandler_QueryWithNoMatch_Returns200WithEmptyArray(t *testing.T) {
+	db := newTestDatabase(t)
+
+	_, err := db.Connection().Exec(
+		"INSERT INTO cards (name, owned) VALUES (?, ?)",
+		"Luke Skywalker, Jedi Knight", 0,
+	)
+	require.NoError(t, err)
+
+	response := searchCards(t, db, "Darth+Vader")
+
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Equal(t, "application/json", response.Header.Get("Content-Type"))
+
+	var result []models.Card
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&result))
+	assert.Empty(t, result)
+}

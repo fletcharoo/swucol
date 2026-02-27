@@ -178,6 +178,30 @@ func DecrementCardOwnedHandler(db *database.Database) http.HandlerFunc {
 	}
 }
 
+// SearchCardsHandler returns an http.HandlerFunc that handles GET /cards/search.
+// It reads the optional "q" query parameter and returns a JSON array of cards
+// whose names contain the query as a case-insensitive substring. If "q" is
+// absent or empty, all cards are returned. Always returns 200 OK with a JSON
+// array (empty array when there are no results), or 500 Internal Server Error
+// for database errors.
+func SearchCardsHandler(db *database.Database) http.HandlerFunc {
+	return func(responseWriter http.ResponseWriter, request *http.Request) {
+		query := request.URL.Query().Get("q")
+
+		matchedCards, err := db.SearchCards(query)
+		if err != nil {
+			http.Error(responseWriter, "database error", http.StatusInternalServerError)
+			return
+		}
+
+		responseWriter.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(responseWriter).Encode(matchedCards); err != nil {
+			http.Error(responseWriter, "failed to encode response", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
 // ImportCardsHandler returns an http.HandlerFunc that accepts a raw CSV body,
 // parses it, and inserts any cards that do not already exist in the database.
 // Cards that already exist (matched by name) are silently skipped. Cards that
